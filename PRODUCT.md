@@ -22,6 +22,12 @@ focused tutoring conversations, grounds explanations in the student's own
 materials, and can place relevant slide diagrams directly beside the teaching
 that refers to them.
 
+The initial product uses an explicit local companion called Sovereign Bridge.
+The bridge retains course files on the student's machine, extracts and indexes
+slides by page, retrieves only the evidence relevant to the current question,
+and runs ephemeral tutoring turns through the student's own Codex CLI login.
+The hosted interface never receives broad filesystem or terminal access.
+
 Sessions are intentionally temporary. Before a transcript expires, Sovereign
 distils durable learning evidence: concepts studied, time spent, demonstrated
 mastery, recurring misconceptions, and future review priorities. The transcript

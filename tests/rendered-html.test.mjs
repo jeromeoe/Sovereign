@@ -23,25 +23,27 @@ async function render() {
   );
 }
 
-test("server-renders the Sovereign tutoring workspace", async () => {
+test("server-renders the Sovereign landing page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>Sovereign — Study with intent<\/title>/i);
-  assert.match(html, /Hold the previous iteration still\./);
-  assert.match(html, /Which value must remain fixed/);
-  assert.match(html, /aria-label="Primary navigation"/);
-  assert.match(html, /aria-label="Evidence and session memory"/);
-  assert.match(html, /Skip to tutoring/);
+  assert.match(html, /Your slides\./);
+  assert.match(html, /One tutor that remembers\./);
+  assert.match(html, /aria-label="Landing navigation"/);
+  assert.match(html, /Add your first course/);
+  assert.match(html, /Your model\. Your material\. Your machine\./);
   assert.match(html, /og:image/);
   assert.doesNotMatch(html, /react-loading-skeleton|Your site is taking shape/);
 });
 
-test("keeps responsive, accessible, and reduced-motion behavior in source", async () => {
-  const [workspace, css, layout, packageJson] = await Promise.all([
+test("keeps live tutoring, local pairing, and accessibility behavior in source", async () => {
+  const [workspace, setup, bridge, css, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/tutor-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/setup-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../bridge/server.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -51,6 +53,11 @@ test("keeps responsive, accessible, and reduced-motion behavior in source", asyn
   assert.match(workspace, /aria-pressed=\{focusMode\}/);
   assert.match(workspace, /End &amp; distil/);
   assert.match(workspace, /matchMedia\("\(max-width: 980px\)"\)/);
+  assert.match(setup, /sovereign_bridge_token/);
+  assert.match(setup, /Drop your lecture slides here/);
+  assert.match(bridge, /"--ephemeral"/);
+  assert.match(bridge, /Sovereign Library/);
+  assert.match(bridge, /retrieveEvidence/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /:focus-visible/);
   assert.match(css, /@media \(max-width: 720px\)/);
