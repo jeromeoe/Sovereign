@@ -39,10 +39,11 @@ test("server-renders the Sovereign landing page", async () => {
   assert.doesNotMatch(html, /react-loading-skeleton|Your site is taking shape/);
 });
 
-test("keeps live tutoring, local pairing, and accessibility behavior in source", async () => {
-  const [workspace, setup, bridge, css, layout, packageJson] = await Promise.all([
+test("keeps live tutoring, beginner setup, and accessibility behavior in source", async () => {
+  const [workspace, setup, launcher, bridge, css, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/tutor-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/setup-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../Start Sovereign.cmd", import.meta.url), "utf8"),
     readFile(new URL("../bridge/server.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -54,7 +55,12 @@ test("keeps live tutoring, local pairing, and accessibility behavior in source",
   assert.match(workspace, /End &amp; distil/);
   assert.match(workspace, /matchMedia\("\(max-width: 980px\)"\)/);
   assert.match(setup, /sovereign_bridge_token/);
+  assert.match(setup, /Double-click/);
+  assert.match(setup, /window\.setInterval/);
+  assert.match(setup, /Prefer the terminal\?/);
   assert.match(setup, /Drop your lecture slides here/);
+  assert.match(launcher, /npm\.cmd run bridge/);
+  assert.match(launcher, /codex login/);
   assert.match(bridge, /"--ephemeral"/);
   assert.match(bridge, /Sovereign Library/);
   assert.match(bridge, /retrieveEvidence/);

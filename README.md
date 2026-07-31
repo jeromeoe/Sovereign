@@ -10,7 +10,19 @@ and distils the session into durable learning evidence.
 - Node.js `>=22.13.0`
 - A Codex-supported ChatGPT plan
 
-## First run
+## Easiest first run on Windows
+
+1. Open the Sovereign folder.
+2. Double-click **Start Sovereign.cmd**.
+3. Keep the Sovereign window open.
+4. Open Sovereign in your browser. The setup page detects the window
+   automatically and asks for its six-character code.
+
+The launcher checks the one-time requirements, guides the student through
+Codex sign-in if needed, and starts the private study connection. No terminal
+commands are required.
+
+## Developer setup
 
 Install dependencies and sign into the bundled Codex CLI:
 
@@ -19,20 +31,20 @@ npm install
 npx codex login
 ```
 
-Start the web interface:
+Start the local web interface:
 
 ```powershell
 npm run dev
 ```
 
-In a second terminal, start Sovereign Bridge:
+In a second terminal, start the local study connection:
 
 ```powershell
 npm run bridge
 ```
 
 Open the web interface, choose **Add your first course**, and enter the pairing
-code printed by the bridge. The pairing token lasts until the bridge closes or
+code printed in the Sovereign window. The pairing token lasts until it closes or
 12 hours pass.
 
 ## Supported material
