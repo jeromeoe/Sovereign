@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-31T00:00:00.000Z",
+  "title": "Design System: Sovereign",
+  "extensions": {
+    "colorMeta": {
+      "field": {
+        "role": "neutral",
+        "displayName": "Quiet Field",
+        "canonical": "oklch(0.975 0.012 82)",
+        "tonalRamp": ["oklch(0.18 0.012 82)", "oklch(0.28 0.012 82)", "oklch(0.40 0.012 82)", "oklch(0.54 0.012 82)", "oklch(0.68 0.012 82)", "oklch(0.80 0.012 82)", "oklch(0.90 0.012 82)", "oklch(0.975 0.012 82)"]
+      },
+      "stem": {
+        "role": "primary",
+        "displayName": "Grounded Stem",
+        "canonical": "oklch(0.390 0.072 158)",
+        "tonalRamp": ["oklch(0.18 0.072 158)", "oklch(0.27 0.072 158)", "oklch(0.39 0.072 158)", "oklch(0.51 0.072 158)", "oklch(0.63 0.065 158)", "oklch(0.75 0.052 158)", "oklch(0.86 0.038 158)", "oklch(0.94 0.022 158)"]
+      },
+      "evidence": {
+        "role": "secondary",
+        "displayName": "Quiet Aubergine",
+        "canonical": "oklch(0.440 0.065 320)",
+        "tonalRamp": ["oklch(0.18 0.065 320)", "oklch(0.28 0.065 320)", "oklch(0.44 0.065 320)", "oklch(0.56 0.060 320)", "oklch(0.68 0.052 320)", "oklch(0.79 0.042 320)", "oklch(0.88 0.030 320)", "oklch(0.95 0.018 320)"]
+      }
+    },
+    "typographyMeta": {
+      "headline": {"displayName": "Tutor headline", "purpose": "Session concepts and distilled outcomes."},
+      "body": {"displayName": "Tutor body", "purpose": "Long-form explanations and learner responses."},
+      "label": {"displayName": "Interface label", "purpose": "Controls, metadata, and navigation."}
+    },
+    "shadows": [
+      {"name": "overlay", "value": "0 24px 64px oklch(0.19 0.025 170 / 0.14)", "purpose": "Mobile source drawer and transient overlays only."}
+    ],
+    "motion": [
+      {"name": "state", "value": "180ms cubic-bezier(0.25, 1, 0.5, 1)", "purpose": "Hover, focus, and compact state transitions."},
+      {"name": "layout", "value": "260ms cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Focus mode and evidence-rail transitions."}
+    ],
+    "breakpoints": [
+      {"name": "mobile", "value": "720px"},
+      {"name": "compact", "value": "1080px"}
+    ]
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "The Deliberate Study",
+    "overview": "A quiet, evidence-led workspace where the tutoring exchange dominates and every secondary surface earns its place.",
+    "keyCharacteristics": ["Conversation without speech bubbles", "Inline source diagrams", "Semantic green and aubergine", "Moderate density with Focus Mode"],
+    "rules": [
+      {"name": "Semantic Colour", "body": "Green means tutor or current action; purple means source or evidence.", "section": "colors"},
+      {"name": "Flat at Rest", "body": "Persistent surfaces use rules and tones, not decorative shadow.", "section": "elevation"}
+    ],
+    "dos": ["Keep the teaching exchange dominant.", "Place cited diagrams beside the explanation that uses them."],
+    "donts": ["Do not use heraldry, mascots, neon, glassmorphism, or gradient text.", "Do not render an endless stack of chat bubbles."]
+  }
+}
