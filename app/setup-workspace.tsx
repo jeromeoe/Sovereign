@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CircleAlert,
   Copy,
+  Download,
   FileImage,
   FileText,
   Image as ImageIcon,
@@ -35,6 +36,9 @@ import { SovereignMark } from "./brand-mark";
 
 const BRIDGE_URL = "http://127.0.0.1:4317";
 const START_COMMAND = "npm run bridge";
+const COMPANION_PROTOCOL_URL = "sovereign://open";
+const COMPANION_DOWNLOAD_URL =
+  process.env.NEXT_PUBLIC_SOVEREIGN_COMPANION_DOWNLOAD_URL?.trim() ?? "";
 
 type Material = {
   id: string;
@@ -78,6 +82,7 @@ type Course = {
 };
 
 type BridgeState = "checking" | "offline" | "pairing" | "connected";
+type InstallStage = "idle" | "downloading" | "opening";
 
 export function BridgeSetup() {
   const router = useRouter();
@@ -99,6 +104,7 @@ export function BridgeSetup() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewPage, setPreviewPage] = useState(1);
   const [copied, setCopied] = useState(false);
+  const [installStage, setInstallStage] = useState<InstallStage>("idle");
   const [error, setError] = useState("");
 
   const checkBridge = useCallback(
@@ -384,6 +390,13 @@ export function BridgeSetup() {
     }
   }
 
+  function openCompanion() {
+    setInstallStage("opening");
+    window.location.assign(COMPANION_PROTOCOL_URL);
+    window.setTimeout(() => void checkBridge(token, true), 1200);
+    window.setTimeout(() => setInstallStage("idle"), 4500);
+  }
+
   function startTutor() {
     if (!activeCourse) return;
     window.sessionStorage.setItem("sovereign_course_id", activeCourse.id);
@@ -504,34 +517,97 @@ export function BridgeSetup() {
               <div className="bridge-waiting" role="status">
                 <span className="bridge-waiting-pulse" aria-hidden="true" />
                 <div>
-                  <strong>Waiting for Sovereign</strong>
-                  <span>This page will continue automatically when it opens.</span>
+                  <strong>
+                    {installStage === "downloading"
+                      ? "Your download has started"
+                      : installStage === "opening"
+                        ? "Trying to open Sovereign"
+                        : "Sovereign isn’t open yet"}
+                  </strong>
+                  <span>
+                    {installStage === "downloading"
+                      ? "Open the installer when it finishes. This page will detect Sovereign automatically."
+                      : installStage === "opening"
+                        ? "If Windows asks for permission, choose Open Sovereign Companion."
+                        : "Install it once, or open it if it is already on this computer."}
+                  </span>
                 </div>
               </div>
 
-              <ol className="start-guide">
+              <section className="companion-install" aria-labelledby="install-heading">
+                <div className="companion-install-copy">
+                  <span className="companion-install-mark">
+                    <SovereignMark size={27} />
+                  </span>
+                  <div>
+                    <h3 id="install-heading">Get Sovereign Companion</h3>
+                    <p>
+                      A one-time Windows companion keeps your study library private and
+                      connects this page to your Codex account.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="companion-install-actions">
+                  {COMPANION_DOWNLOAD_URL ? (
+                    <a
+                      className="companion-download-button"
+                      href={COMPANION_DOWNLOAD_URL}
+                      onClick={() => setInstallStage("downloading")}
+                    >
+                      <Download aria-hidden="true" size={17} />
+                      Download for Windows
+                    </a>
+                  ) : (
+                    <button
+                      className="companion-download-button unavailable"
+                      disabled
+                      type="button"
+                    >
+                      <Download aria-hidden="true" size={17} />
+                      Private alpha installer
+                    </button>
+                  )}
+                  <button
+                    className="companion-open-button"
+                    onClick={openCompanion}
+                    type="button"
+                  >
+                    Already installed? Open Sovereign
+                    <ArrowRight aria-hidden="true" size={16} />
+                  </button>
+                </div>
+
+                <p className="companion-install-meta">
+                  {COMPANION_DOWNLOAD_URL
+                    ? "Windows 10 or 11 · about 203 MB · one-time setup"
+                    : "For the private alpha, use the installer shared with your invitation."}
+                </p>
+              </section>
+
+              <ol className="start-guide" aria-label="Installation steps">
                 <li>
                   <span>1</span>
-                  <SovereignMark size={24} />
+                  <Download aria-hidden="true" size={20} />
                   <div>
-                    <strong>Open Sovereign Companion</strong>
-                    <p>Find it on your desktop or in the Windows Start menu.</p>
+                    <strong>Download and run the installer</strong>
+                    <p>It adds Sovereign to your desktop and Start menu.</p>
                   </div>
                 </li>
                 <li>
                   <span>2</span>
                   <ShieldCheck aria-hidden="true" size={20} />
                   <div>
-                    <strong>Wait until it says “Sovereign is ready”</strong>
-                    <p>The companion handles your private connection for you.</p>
+                    <strong>Let Sovereign finish starting</strong>
+                    <p>Sign in to Codex if the Companion asks you to.</p>
                   </div>
                 </li>
                 <li>
                   <span>3</span>
                   <LockKeyhole aria-hidden="true" size={20} />
                   <div>
-                    <strong>Come back here</strong>
-                    <p>We’ll find it for you and ask for the code in that window.</p>
+                    <strong>Keep this page open</strong>
+                    <p>It continues automatically when Sovereign is ready.</p>
                   </div>
                 </li>
               </ol>
@@ -539,11 +615,11 @@ export function BridgeSetup() {
               <div className="bridge-actions">
                 <button
                   className="setup-secondary-button"
-                  onClick={() => void checkBridge(token)}
+                  onClick={openCompanion}
                   type="button"
                 >
                   <RefreshCw aria-hidden="true" size={16} />
-                  Check again
+                  Open or check again
                 </button>
                 <span>Usually detected within two seconds</span>
               </div>

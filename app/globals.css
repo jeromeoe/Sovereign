@@ -2688,6 +2688,122 @@ button:disabled {
   font-size: 10px;
 }
 
+.companion-install {
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 24px;
+  padding: 4px 0 24px;
+}
+
+.companion-install-copy {
+  align-items: flex-start;
+  display: grid;
+  gap: 13px;
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+.companion-install-mark {
+  align-items: center;
+  background: color-mix(in oklch, var(--stem-soft) 68%, var(--surface));
+  border: 1px solid color-mix(in oklch, var(--stem) 22%, var(--rule));
+  border-radius: 50%;
+  color: var(--ink);
+  display: flex;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.companion-install-copy h3 {
+  color: var(--ink);
+  font-size: 15px;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  margin: 1px 0 6px;
+  text-wrap: balance;
+}
+
+.companion-install-copy p {
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 54ch;
+  text-wrap: pretty;
+}
+
+.companion-install-actions {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.companion-download-button,
+.companion-open-button {
+  align-items: center;
+  border-radius: 10px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 690;
+  gap: 8px;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 14px;
+  text-decoration: none;
+  transition:
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    color 180ms ease-out,
+    transform 180ms ease-out;
+}
+
+.companion-download-button {
+  background: var(--stem);
+  border: 1px solid var(--stem);
+  color: white;
+}
+
+.companion-download-button:hover {
+  background: var(--stem-hover);
+  border-color: var(--stem-hover);
+  transform: translateY(-1px);
+}
+
+.companion-download-button.unavailable {
+  background: var(--surface-muted);
+  border-color: var(--rule);
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
+.companion-open-button {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+}
+
+.companion-open-button:hover {
+  background: var(--surface);
+  border-color: color-mix(in oklch, var(--ink) 24%, var(--rule));
+}
+
+.companion-download-button:focus-visible,
+.companion-open-button:focus-visible {
+  outline: 3px solid var(--evidence-soft);
+  outline-offset: 2px;
+}
+
+.companion-install-meta {
+  color: var(--ink-soft);
+  font-size: 9px;
+  grid-column: 1 / -1;
+  margin: -8px 0 0 53px;
+}
+
 @keyframes waiting-pulse {
   0% {
     box-shadow: 0 0 0 2px var(--stem-soft);
@@ -2702,7 +2818,7 @@ button:disabled {
 
 .start-guide {
   list-style: none;
-  margin: 27px 0 0;
+  margin: 8px 0 0;
   padding: 0;
 }
 
@@ -4180,6 +4296,19 @@ button:disabled {
   .upload-zone,
   .upload-queue,
   .material-workbench {
+    margin-left: 0;
+  }
+
+  .companion-install {
+    grid-template-columns: 1fr;
+  }
+
+  .companion-install-actions {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .companion-install-meta {
     margin-left: 0;
   }
 

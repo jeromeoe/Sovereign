@@ -34,6 +34,19 @@ runtime locally. It is not yet code-signed, so Windows SmartScreen may show an
 unknown-publisher warning. Code signing and hosted installer delivery are
 required before distributing Sovereign beyond the controlled alpha group.
 
+The setup page supports the full first-run sequence: download, run the
+installer, open the Companion, and automatic local detection. Set
+`NEXT_PUBLIC_SOVEREIGN_COMPANION_DOWNLOAD_URL` while building the web app to
+show the public **Download for Windows** action. Without a published URL, the
+page clearly identifies the build as a private alpha and directs invited
+testers to the installer shared with them.
+
+Do not commit the installer into the web app. Sites/Cloudflare static assets
+have a 25 MiB per-file limit. For the controlled alpha, publish the installer as
+a release asset (for example, GitHub Releases) and point the variable above to
+that HTTPS URL. For broad distribution, use consistent code signing or the
+Microsoft Store before removing the private-alpha warning.
+
 ## Developer setup
 
 Install dependencies and sign into the bundled Codex CLI:

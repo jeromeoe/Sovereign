@@ -51,10 +51,27 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => showWindow());
+  registerProtocolClient();
+  app.on("second-instance", (_event, commandLine) => {
+    if (commandLine.some((argument) => argument.startsWith("sovereign://"))) {
+      showWindow();
+      return;
+    }
+    showWindow();
+  });
 }
 
 app.setAppUserModelId("com.sovereign.study");
+
+function registerProtocolClient() {
+  if (process.defaultApp && process.argv[1]) {
+    app.setAsDefaultProtocolClient("sovereign", process.execPath, [
+      path.resolve(process.argv[1]),
+    ]);
+    return;
+  }
+  app.setAsDefaultProtocolClient("sovereign");
+}
 
 app.whenReady().then(async () => {
   createWindow();

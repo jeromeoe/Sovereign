@@ -68,6 +68,9 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(workspace, /matchMedia\("\(max-width: 980px\)"\)/);
   assert.match(setup, /sovereign_bridge_token/);
   assert.match(setup, /Open Sovereign Companion/);
+  assert.match(setup, /NEXT_PUBLIC_SOVEREIGN_COMPANION_DOWNLOAD_URL/);
+  assert.match(setup, /Download for Windows/);
+  assert.match(setup, /sovereign:\/\/open/);
   assert.match(setup, /window\.setInterval/);
   assert.match(setup, /XMLHttpRequest/);
   assert.match(setup, /Source check/);
@@ -77,6 +80,7 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(launcher, /codex login/);
   assert.match(companion, /new BrowserWindow/);
   assert.match(companion, /new Tray/);
+  assert.match(companion, /setAsDefaultProtocolClient\("sovereign"/);
   assert.match(companion, /contextIsolation:\s*true/);
   assert.match(companion, /ELECTRON_RUN_AS_NODE/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);

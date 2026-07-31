@@ -56,6 +56,14 @@
     "appId": "com.sovereign.study",
     "productName": "Sovereign Companion",
     "artifactName": "Sovereign-Companion-Setup-${version}.${ext}",
+    "protocols": [
+      {
+        "name": "Sovereign Companion",
+        "schemes": [
+          "sovereign"
+        ]
+      }
+    ],
     "electronDist": "node_modules/electron/dist",
     "asar": true,
     "asarUnpack": [
