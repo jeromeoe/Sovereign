@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sovereign Companion</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <header class="companion-header">
+        <div class="brand">
+          <img alt="" src="../public/favicon.svg" />
+          <span>Sovereign</span>
+        </div>
+        <span class="companion-label">Companion</span>
+      </header>
+
+      <section class="status-section" aria-live="polite">
+        <div class="status-presence" data-state="starting" id="status-presence">
+          <span></span>
+        </div>
+        <p class="section-context">Private study connection</p>
+        <h1 id="status-title">Starting Sovereign…</h1>
+        <p id="status-message">Preparing your private study connection.</p>
+
+        <div class="pairing-code" hidden id="pairing-block">
+          <span>Code for your browser</span>
+          <strong id="pairing-code">—</strong>
+        </div>
+
+        <button class="primary-action" disabled id="open-sovereign" type="button">
+          Open Sovereign
+          <span aria-hidden="true">→</span>
+        </button>
+      </section>
+
+      <section class="connection-list" aria-label="Companion status">
+        <article>
+          <span class="row-indicator" data-state="checking" id="codex-indicator"></span>
+          <div>
+            <strong>ChatGPT</strong>
+            <p id="codex-message">Checking your connection…</p>
+          </div>
+          <button class="text-action" hidden id="sign-in" type="button">
+            Sign in
+          </button>
+        </article>
+        <article>
+          <span class="row-indicator ready"></span>
+          <div>
+            <strong>Study library</strong>
+            <p>Your slides stay in your Sovereign Library.</p>
+          </div>
+          <button class="text-action" id="open-library" type="button">
+            Open
+          </button>
+        </article>
+      </section>
+
+      <div class="error-actions" hidden id="error-actions">
+        <button class="secondary-action" id="restart" type="button">
+          Try again
+        </button>
+      </div>
+
+      <footer>
+        <p>You can close this window. Sovereign will remain available in the tray.</p>
+        <button id="hide" type="button">Hide companion</button>
+      </footer>
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

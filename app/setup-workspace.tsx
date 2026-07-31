@@ -3,19 +3,21 @@
 import {
   ArrowLeft,
   ArrowRight,
+  AlertTriangle,
   Check,
   ChevronRight,
   CircleAlert,
   Copy,
   FileImage,
   FileText,
-  FolderOpen,
+  Image as ImageIcon,
   LoaderCircle,
   LockKeyhole,
   Plus,
   Presentation,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -41,6 +43,31 @@ type Material = {
   pages: number;
   chunks: number;
   kind: string;
+  extractedCharacters?: number;
+  visuals?: number;
+  warnings?: string[];
+  preview?: string;
+};
+
+type MaterialSlide = {
+  page: number;
+  slide: number;
+  text: string;
+};
+
+type MaterialDetail = Material & {
+  slides: MaterialSlide[];
+  warnings: string[];
+  visuals: number;
+  extractedCharacters: number;
+};
+
+type UploadItem = {
+  id: string;
+  name: string;
+  progress: number;
+  status: "waiting" | "uploading" | "processing" | "ready" | "error";
+  error?: string;
 };
 
 type Course = {
@@ -63,7 +90,14 @@ export function BridgeSetup() {
   const [courseTitle, setCourseTitle] = useState("Artificial Intelligence");
   const [creatingCourse, setCreatingCourse] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [selectedMaterialId, setSelectedMaterialId] = useState("");
+  const [materialDetail, setMaterialDetail] =
+    useState<MaterialDetail | null>(null);
+  const [materialPreviewUrl, setMaterialPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewPage, setPreviewPage] = useState(1);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
 
@@ -105,8 +139,11 @@ export function BridgeSetup() {
   useEffect(() => {
     const savedToken =
       window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
-    setToken(savedToken);
-    void checkBridge(savedToken);
+    const bootstrap = window.setTimeout(() => {
+      setToken(savedToken);
+      void checkBridge(savedToken);
+    }, 0);
+    return () => window.clearTimeout(bootstrap);
   }, [checkBridge]);
 
   useEffect(() => {
@@ -116,6 +153,12 @@ export function BridgeSetup() {
     }, 2000);
     return () => window.clearInterval(poll);
   }, [bridgeState, checkBridge, token]);
+
+  useEffect(() => {
+    return () => {
+      if (materialPreviewUrl) URL.revokeObjectURL(materialPreviewUrl);
+    };
+  }, [materialPreviewUrl]);
 
   async function pairBridge(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,34 +215,152 @@ export function BridgeSetup() {
 
   async function uploadFiles(files: File[]) {
     if (!activeCourse || !files.length) return;
+    const courseId = activeCourse.id;
+    const queuedFiles = files.map((file) => ({
+      id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
+      name: file.name,
+      progress: 0,
+      status: "waiting" as const,
+      file,
+    }));
     setUploading(true);
     setError("");
-    const form = new FormData();
-    files.forEach((file) => form.append("files", file));
+    setUploadQueue(
+      queuedFiles.map(({ id, name, progress, status }) => ({
+        id,
+        name,
+        progress,
+        status,
+      })),
+    );
+
     try {
-      const response = await bridgeFetch(
-        `/v1/courses/${activeCourse.id}/materials`,
-        { method: "POST", body: form },
-      );
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Upload failed.");
-      const nextCourse = {
-        ...activeCourse,
-        materials: [...activeCourse.materials, ...data.materials],
-      };
-      setActiveCourse(nextCourse);
-      setCourses((current) =>
-        current.map((course) =>
-          course.id === nextCourse.id ? nextCourse : course,
-        ),
-      );
-    } catch (uploadError) {
-      setError(
-        uploadError instanceof Error ? uploadError.message : "Upload failed.",
-      );
+      for (const queuedFile of queuedFiles) {
+        try {
+          const material = await uploadOneFile(
+            courseId,
+            queuedFile.id,
+            queuedFile.file,
+          );
+          setActiveCourse((current) =>
+            current?.id === courseId
+              ? { ...current, materials: [...current.materials, material] }
+              : current,
+          );
+          setCourses((current) =>
+            current.map((course) =>
+              course.id === courseId
+                ? { ...course, materials: [...course.materials, material] }
+                : course,
+            ),
+          );
+          updateUploadItem(queuedFile.id, {
+            status: "ready",
+            progress: 100,
+          });
+          await inspectMaterial(courseId, material);
+        } catch (uploadError) {
+          const message =
+            uploadError instanceof Error ? uploadError.message : "Upload failed.";
+          updateUploadItem(queuedFile.id, {
+            status: "error",
+            error: message,
+          });
+        }
+      }
     } finally {
       setUploading(false);
       setDragActive(false);
+    }
+  }
+
+  function uploadOneFile(courseId: string, queueId: string, file: File) {
+    return new Promise<Material>((resolve, reject) => {
+      const form = new FormData();
+      form.append("files", file);
+      const request = new XMLHttpRequest();
+      request.open(
+        "POST",
+        `${BRIDGE_URL}/v1/courses/${courseId}/materials`,
+      );
+      request.setRequestHeader("Authorization", `Bearer ${token}`);
+      request.upload.addEventListener("loadstart", () => {
+        updateUploadItem(queueId, { status: "uploading", progress: 4 });
+      });
+      request.upload.addEventListener("progress", (event) => {
+        if (!event.lengthComputable) return;
+        updateUploadItem(queueId, {
+          status: "uploading",
+          progress: Math.max(4, Math.round((event.loaded / event.total) * 82)),
+        });
+      });
+      request.upload.addEventListener("load", () => {
+        updateUploadItem(queueId, { status: "processing", progress: 88 });
+      });
+      request.addEventListener("load", () => {
+        let body;
+        try {
+          body = JSON.parse(request.responseText);
+        } catch {
+          return reject(new Error("Sovereign returned an unreadable response."));
+        }
+        if (request.status < 200 || request.status >= 300) {
+          return reject(new Error(body.error ?? "Upload failed."));
+        }
+        const material = body.materials?.[0];
+        if (!material) {
+          return reject(new Error("The source was retained without an index."));
+        }
+        resolve(material);
+      });
+      request.addEventListener("error", () => {
+        reject(new Error("The local study connection was interrupted."));
+      });
+      request.send(form);
+    });
+  }
+
+  function updateUploadItem(id: string, patch: Partial<UploadItem>) {
+    setUploadQueue((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+  }
+
+  async function inspectMaterial(courseId: string, material: Material) {
+    setSelectedMaterialId(material.id);
+    setPreviewLoading(true);
+    setPreviewPage(1);
+    setMaterialDetail(null);
+    try {
+      const response = await bridgeFetch(
+        `/v1/courses/${courseId}/materials/${material.id}`,
+        { cache: "no-store" },
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Could not inspect this source.");
+      }
+      setMaterialDetail(data.material);
+
+      if (material.kind === "pdf" || material.kind === "image") {
+        const fileResponse = await bridgeFetch(
+          `/v1/courses/${courseId}/materials/${material.id}/file`,
+          { cache: "no-store" },
+        );
+        if (!fileResponse.ok) throw new Error("Could not open the local preview.");
+        const nextUrl = URL.createObjectURL(await fileResponse.blob());
+        setMaterialPreviewUrl(nextUrl);
+      } else {
+        setMaterialPreviewUrl("");
+      }
+    } catch (previewError) {
+      setError(
+        previewError instanceof Error
+          ? previewError.message
+          : "Could not inspect this source.",
+      );
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
@@ -351,22 +512,18 @@ export function BridgeSetup() {
               <ol className="start-guide">
                 <li>
                   <span>1</span>
-                  <FolderOpen aria-hidden="true" size={20} />
+                  <SovereignMark size={24} />
                   <div>
-                    <strong>Open your Sovereign folder</strong>
-                    <p>The folder you downloaded or received from us.</p>
+                    <strong>Open Sovereign Companion</strong>
+                    <p>Find it on your desktop or in the Windows Start menu.</p>
                   </div>
                 </li>
                 <li>
                   <span>2</span>
-                  <div className="launcher-glyph" aria-hidden="true">
-                    S
-                  </div>
+                  <ShieldCheck aria-hidden="true" size={20} />
                   <div>
-                    <strong>
-                      Double-click <code>Start Sovereign.cmd</code>
-                    </strong>
-                    <p>A small window will open. Keep it open while you study.</p>
+                    <strong>Wait until it says “Sovereign is ready”</strong>
+                    <p>The companion handles your private connection for you.</p>
                   </div>
                 </li>
                 <li>
@@ -392,8 +549,10 @@ export function BridgeSetup() {
               </div>
 
               <details className="advanced-start">
-                <summary>Prefer the terminal?</summary>
-                <p>Run this inside the Sovereign folder:</p>
+                <summary>Using the developer version?</summary>
+                <p>
+                  Double-click <strong>Start Sovereign.cmd</strong>, or run:
+                </p>
                 <div className="command-copy">
                   <code>{START_COMMAND}</code>
                   <button
@@ -582,7 +741,7 @@ export function BridgeSetup() {
                 )}
                 <strong>
                   {uploading
-                    ? "Getting your material ready…"
+                    ? "Reading your source material…"
                     : "Drop your lecture slides here"}
                 </strong>
                 <span>
@@ -591,33 +750,225 @@ export function BridgeSetup() {
                 {!uploading && <em>Choose files</em>}
               </label>
 
-              {!!activeCourse.materials.length && (
-                <div className="material-list">
-                  {activeCourse.materials.map((material) => (
-                    <div className="material-row" key={material.id}>
-                      <span className="material-type">
-                        {material.kind === "powerpoint" ? (
-                          <Presentation size={18} />
-                        ) : material.kind === "image" ? (
-                          <FileImage size={18} />
+              {!!uploadQueue.length && (
+                <div className="upload-queue" aria-label="Upload progress">
+                  {uploadQueue.map((item) => (
+                    <div className="upload-queue-row" key={item.id}>
+                      <span
+                        className={`queue-state ${item.status}`}
+                        aria-hidden="true"
+                      >
+                        {item.status === "ready" ? (
+                          <Check size={13} />
+                        ) : item.status === "error" ? (
+                          <X size={13} />
                         ) : (
-                          <FileText size={18} />
+                          <LoaderCircle
+                            className={
+                              item.status === "waiting" ? "" : "spin"
+                            }
+                            size={13}
+                          />
                         )}
                       </span>
                       <div>
-                        <strong>{material.originalName}</strong>
+                        <strong>{item.name}</strong>
                         <span>
-                          {material.pages}{" "}
-                          {material.pages === 1 ? "page" : "slides/pages"} ·{" "}
-                          {formatBytes(material.size)}
+                          {uploadStatusLabel(item)}
+                          {item.error ? ` · ${item.error}` : ""}
                         </span>
+                        <i>
+                          <span
+                            style={{
+                              transform: `scaleX(${item.progress / 100})`,
+                            }}
+                          />
+                        </i>
                       </div>
-                      <span className="indexed-state">
-                        <Check size={13} />
-                        Ready
-                      </span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {!!activeCourse.materials.length && (
+                <div className="material-workbench">
+                  <div className="material-browser">
+                    <div className="material-browser-heading">
+                      <div>
+                        <strong>Source check</strong>
+                        <span>See exactly what Sovereign retained.</span>
+                      </div>
+                      <Sparkles aria-hidden="true" size={17} />
+                    </div>
+                    <div className="material-list">
+                      {activeCourse.materials.map((material) => (
+                        <button
+                          aria-pressed={selectedMaterialId === material.id}
+                          className={
+                            selectedMaterialId === material.id ? "selected" : ""
+                          }
+                          key={material.id}
+                          onClick={() =>
+                            void inspectMaterial(activeCourse.id, material)
+                          }
+                          type="button"
+                        >
+                          <span className="material-type">
+                            {material.kind === "powerpoint" ? (
+                              <Presentation size={18} />
+                            ) : material.kind === "image" ? (
+                              <FileImage size={18} />
+                            ) : (
+                              <FileText size={18} />
+                            )}
+                          </span>
+                          <span>
+                            <strong>{material.originalName}</strong>
+                            <small>
+                              {material.pages}{" "}
+                              {material.pages === 1 ? "page" : "slides/pages"} ·{" "}
+                              {formatBytes(material.size)}
+                            </small>
+                          </span>
+                          <ChevronRight aria-hidden="true" size={15} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <section
+                    aria-label="Source inspection"
+                    className="material-inspector"
+                  >
+                    {!selectedMaterialId && (
+                      <div className="inspector-empty">
+                        <ImageIcon aria-hidden="true" size={23} />
+                        <strong>Choose a source to inspect it</strong>
+                        <span>
+                          You’ll see its slides, extracted text, and any reading
+                          warnings here.
+                        </span>
+                      </div>
+                    )}
+
+                    {previewLoading && (
+                      <div className="inspector-loading">
+                        <div className="inspector-skeleton wide" />
+                        <div className="inspector-skeleton" />
+                        <div className="inspector-skeleton preview" />
+                      </div>
+                    )}
+
+                    {!previewLoading && materialDetail && (
+                      <>
+                        <header className="inspector-heading">
+                          <div>
+                            <span>Ready for tutoring</span>
+                            <h3>{materialDetail.originalName}</h3>
+                          </div>
+                          <Check aria-hidden="true" size={18} />
+                        </header>
+
+                        <div className="source-signals">
+                          <span>
+                            <strong>{materialDetail.pages}</strong>
+                            slides/pages
+                          </span>
+                          <span>
+                            <strong>
+                              {formatCompactNumber(
+                                materialDetail.extractedCharacters,
+                              )}
+                            </strong>
+                            text read
+                          </span>
+                          <span>
+                            <strong>{materialDetail.visuals}</strong>
+                            visuals retained
+                          </span>
+                        </div>
+
+                        {!!materialDetail.warnings.length && (
+                          <div className="source-warning">
+                            <AlertTriangle aria-hidden="true" size={17} />
+                            <span>{materialDetail.warnings[0]}</span>
+                          </div>
+                        )}
+
+                        {materialDetail.kind === "pdf" &&
+                          materialPreviewUrl && (
+                            <div className="source-preview">
+                              <div className="source-preview-toolbar">
+                                <span>Visual preview</span>
+                                <label>
+                                  Page
+                                  <select
+                                    onChange={(event) =>
+                                      setPreviewPage(Number(event.target.value))
+                                    }
+                                    value={previewPage}
+                                  >
+                                    {Array.from(
+                                      { length: materialDetail.pages },
+                                      (_, index) => index + 1,
+                                    ).map((page) => (
+                                      <option
+                                        key={page}
+                                        value={page}
+                                      >
+                                        {page}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                              <iframe
+                                src={`${materialPreviewUrl}#page=${previewPage}&view=FitH`}
+                                title={`Preview of ${materialDetail.originalName}, page ${previewPage}`}
+                              />
+                            </div>
+                          )}
+
+                        {materialDetail.kind === "image" &&
+                          materialPreviewUrl && (
+                            <figure className="source-image-preview">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                alt={`Preview of ${materialDetail.originalName}`}
+                                src={materialPreviewUrl}
+                              />
+                              <figcaption>
+                                Sovereign will inspect this image directly during
+                                tutoring.
+                              </figcaption>
+                            </figure>
+                          )}
+
+                        {materialDetail.kind !== "image" &&
+                          materialDetail.kind !== "pdf" && (
+                            <div className="slide-text-list">
+                              <div className="source-preview-toolbar">
+                                <span>Extracted slide text</span>
+                                <small>
+                                  {materialDetail.slides.length} sections
+                                </small>
+                              </div>
+                              {materialDetail.slides
+                                .slice(0, 8)
+                                .map((slide) => (
+                                  <article key={slide.slide}>
+                                    <span>Slide {slide.slide}</span>
+                                    <p>
+                                      {slide.text ||
+                                        "No selectable text on this slide."}
+                                    </p>
+                                  </article>
+                                ))}
+                            </div>
+                          )}
+                      </>
+                    )}
+                  </section>
                 </div>
               )}
             </>
@@ -663,4 +1014,21 @@ function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024)
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatCompactNumber(value: number) {
+  if (value >= 1000) return `${Math.round(value / 100) / 10}k`;
+  return String(value);
+}
+
+function uploadStatusLabel(item: UploadItem) {
+  return (
+    {
+      waiting: "Waiting",
+      uploading: `Copying locally · ${item.progress}%`,
+      processing: "Reading slides and diagrams",
+      ready: "Ready for tutoring",
+      error: "Needs attention",
+    }[item.status] ?? "Waiting"
+  );
 }

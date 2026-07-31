@@ -117,9 +117,12 @@ export function TutorWorkspace() {
   const answerRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (window.matchMedia("(max-width: 980px)").matches) {
-      setSourceOpen(false);
-    }
+    const responsiveState = window.setTimeout(() => {
+      if (window.matchMedia("(max-width: 980px)").matches) {
+        setSourceOpen(false);
+      }
+    }, 0);
+    return () => window.clearTimeout(responsiveState);
   }, []);
 
   useEffect(() => {

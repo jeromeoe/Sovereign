@@ -7,20 +7,32 @@ and distils the session into durable learning evidence.
 
 ## Requirements
 
-- Node.js `>=22.13.0`
+- Windows 10/11 x64 for the current companion alpha
 - A Codex-supported ChatGPT plan
+
+Developing from source additionally requires Node.js `>=22.13.0`.
 
 ## Easiest first run on Windows
 
-1. Open the Sovereign folder.
-2. Double-click **Start Sovereign.cmd**.
-3. Keep the Sovereign window open.
-4. Open Sovereign in your browser. The setup page detects the window
+1. Install **Sovereign Companion**.
+2. Open it from the desktop or Windows Start menu.
+3. Sign in to ChatGPT once if prompted.
+4. Select **Open Sovereign**. The setup page detects the companion
    automatically and asks for its six-character code.
 
-The launcher checks the one-time requirements, guides the student through
-Codex sign-in if needed, and starts the private study connection. No terminal
-commands are required.
+The companion lives quietly in the Windows tray, starts the private study
+connection, displays the browser pairing code, and provides direct access to
+the local Sovereign Library. No terminal, Node.js installation, or project
+folder is required for the packaged app.
+
+`Start Sovereign.cmd` remains available as a developer fallback.
+
+### Alpha distribution note
+
+The current installer is approximately 203 MB because it carries the Codex
+runtime locally. It is not yet code-signed, so Windows SmartScreen may show an
+unknown-publisher warning. Code signing and hosted installer delivery are
+required before distributing Sovereign beyond the controlled alpha group.
 
 ## Developer setup
 
@@ -54,8 +66,11 @@ code printed in the Sovereign window. The pairing token lasts until it closes or
 - PNG, JPG, and WEBP slide captures
 - Markdown and plain text notes
 
-PDF and PowerPoint text is extracted by slide/page and indexed locally. Images
-are attached directly to Codex as visual evidence.
+PDF and PowerPoint text is extracted by slide/page and indexed locally. The
+setup experience shows per-file progress, exact PDF/image previews, extracted
+slide text, and reading warnings before tutoring begins. PowerPoint visuals are
+retained alongside their source slide and selected as visual evidence when
+relevant.
 
 ## Retention model
 
@@ -95,6 +110,9 @@ control.
 
 - `npm run dev` — start the web interface
 - `npm run bridge` — start the local Codex and material bridge
+- `npm run companion` — run Sovereign Companion in development
+- `npm run companion:dir` — package an unpacked Windows companion
+- `npm run companion:build` — build the Windows installer
 - `npm run build` — build the deployable web surface
 - `npm test` — verify rendered routes and interface contracts
 - `npm run test:bridge` — run a real source upload and Codex tutoring smoke test

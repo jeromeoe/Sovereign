@@ -79,6 +79,24 @@ try {
     },
   );
   assert.equal(uploaded.status, 201);
+  const uploadedBody = await uploaded.json();
+  const material = uploadedBody.materials[0];
+  assert.ok(material.extractedCharacters > 0);
+
+  const inspected = await fetch(
+    `${origin}/v1/courses/${course.id}/materials/${material.id}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  assert.equal(inspected.status, 200);
+  const inspectedBody = await inspected.json();
+  assert.match(inspectedBody.material.slides[0].text, /synchronous/i);
+
+  const retainedFile = await fetch(
+    `${origin}/v1/courses/${course.id}/materials/${material.id}/file`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  assert.equal(retainedFile.status, 200);
+  assert.match(await retainedFile.text(), /value-iteration sweep/i);
 
   const tutoring = await fetch(`${origin}/v1/chat`, {
     method: "POST",

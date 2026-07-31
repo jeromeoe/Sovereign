@@ -174,6 +174,65 @@ const server = createServer(async (incoming, outgoing) => {
       return sendJson(outgoing, 201, { materials }, origin);
     }
 
+    const materialDetailMatch = url.pathname.match(
+      /^\/v1\/courses\/([a-f0-9-]+)\/materials\/([a-f0-9-]+)$/,
+    );
+    if (incoming.method === "GET" && materialDetailMatch) {
+      const [, courseId, materialId] = materialDetailMatch;
+      const { material } = await findMaterial(courseId, materialId);
+      if (!material) {
+        return sendJson(outgoing, 404, { error: "Material not found." }, origin);
+      }
+      const index = await readJsonFile(
+        path.join(courseIndexDirectory(courseId), `${material.id}.json`),
+        { chunks: [], images: [], slides: [], warnings: [] },
+      );
+      return sendJson(
+        outgoing,
+        200,
+        {
+          material: {
+            ...material,
+            slides: index.slides ?? [],
+            warnings: index.warnings ?? material.warnings ?? [],
+            visuals: index.images?.length ?? material.visuals ?? 0,
+            extractedCharacters:
+              index.chunks?.reduce(
+                (total, chunk) => total + (chunk.text?.length ?? 0),
+                0,
+              ) ?? 0,
+          },
+        },
+        origin,
+      );
+    }
+
+    const materialFileMatch = url.pathname.match(
+      /^\/v1\/courses\/([a-f0-9-]+)\/materials\/([a-f0-9-]+)\/file$/,
+    );
+    if (incoming.method === "GET" && materialFileMatch) {
+      const [, courseId, materialId] = materialFileMatch;
+      const { material } = await findMaterial(courseId, materialId);
+      if (!material) {
+        return sendJson(outgoing, 404, { error: "Material not found." }, origin);
+      }
+      const contents = await readFile(
+        path.join(courseDirectory(courseId), material.storedName),
+      );
+      applyCors(outgoing, origin);
+      outgoing.statusCode = 200;
+      outgoing.setHeader(
+        "Content-Type",
+        material.contentType || contentTypeFor(material.originalName),
+      );
+      outgoing.setHeader(
+        "Content-Disposition",
+        `inline; filename="${material.originalName.replace(/"/g, "")}"`,
+      );
+      outgoing.setHeader("Content-Length", contents.length);
+      return outgoing.end(contents);
+    }
+
     if (incoming.method === "POST" && url.pathname === "/v1/chat") {
       const body = await readJson(incoming);
       const courseId = cleanText(body.courseId, 64);
@@ -372,6 +431,15 @@ async function updateManifest(mutator) {
   return writeQueue;
 }
 
+async function findMaterial(courseId, materialId) {
+  const manifest = await readManifest();
+  const course = manifest.courses.find((item) => item.id === courseId);
+  return {
+    course,
+    material: course?.materials.find((item) => item.id === materialId) ?? null,
+  };
+}
+
 async function atomicWrite(destination, contents) {
   await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.${process.pid}.tmp`;
@@ -425,7 +493,13 @@ async function retainMaterial(course, upload) {
   await mkdir(courseIndexDirectory(course.id), { recursive: true });
   await writeFile(destination, buffer);
 
-  const extracted = await extractMaterial(buffer, extension, originalName, destination);
+  const extracted = await extractMaterial(
+    buffer,
+    extension,
+    originalName,
+    destination,
+    { courseId: course.id, materialId: id },
+  );
   await atomicWrite(
     path.join(courseIndexDirectory(course.id), `${id}.json`),
     JSON.stringify(extracted, null, 2),
@@ -441,10 +515,23 @@ async function retainMaterial(course, upload) {
     pages: extracted.pages,
     chunks: extracted.chunks.length,
     kind: extracted.kind,
+    extractedCharacters: extracted.chunks.reduce(
+      (total, chunk) => total + chunk.text.length,
+      0,
+    ),
+    visuals: extracted.images.length,
+    warnings: extracted.warnings ?? [],
+    preview: extracted.slides?.find((slide) => slide.text)?.text?.slice(0, 240) ?? "",
   };
 }
 
-async function extractMaterial(buffer, extension, filename, destination) {
+async function extractMaterial(
+  buffer,
+  extension,
+  filename,
+  destination,
+  { courseId, materialId },
+) {
   if (extension === ".pdf") {
     const document = await getDocument({
       data: new Uint8Array(buffer),
@@ -452,6 +539,9 @@ async function extractMaterial(buffer, extension, filename, destination) {
       useWorkerFetch: false,
     }).promise;
     const chunks = [];
+    const slides = [];
+    const warnings = [];
+    let emptyPages = 0;
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
       const content = await page.getTextContent();
@@ -460,6 +550,8 @@ async function extractMaterial(buffer, extension, filename, destination) {
         .join(" ")
         .replace(/\s+/g, " ")
         .trim();
+      if (!text) emptyPages += 1;
+      slides.push({ page: pageNumber, slide: pageNumber, text });
       chunks.push(
         ...splitIntoChunks(text, {
           filename,
@@ -468,7 +560,19 @@ async function extractMaterial(buffer, extension, filename, destination) {
         }),
       );
     }
-    return { kind: "pdf", pages: document.numPages, chunks, images: [] };
+    if (emptyPages) {
+      warnings.push(
+        `${emptyPages} ${emptyPages === 1 ? "page has" : "pages have"} no selectable text. You can preview them here, but visual tutoring from PDF pages is not available yet.`,
+      );
+    }
+    return {
+      kind: "pdf",
+      pages: document.numPages,
+      chunks,
+      images: [],
+      slides,
+      warnings,
+    };
   }
 
   if (extension === ".pptx") {
@@ -477,6 +581,9 @@ async function extractMaterial(buffer, extension, filename, destination) {
       .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
       .sort((a, b) => slideNumber(a) - slideNumber(b));
     const chunks = [];
+    const slides = [];
+    const images = [];
+    let emptySlides = 0;
     for (const slideFile of slideFiles) {
       const xml = await zip.file(slideFile).async("string");
       const text = [...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
@@ -485,15 +592,33 @@ async function extractMaterial(buffer, extension, filename, destination) {
         .replace(/\s+/g, " ")
         .trim();
       const number = slideNumber(slideFile);
+      if (!text) emptySlides += 1;
+      slides.push({ page: number, slide: number, text });
       chunks.push(
         ...splitIntoChunks(text, { filename, page: number, slide: number }),
+      );
+      images.push(
+        ...(await extractPowerPointVisuals(zip, slideFile, {
+          courseId,
+          materialId,
+          filename,
+          slide: number,
+        })),
+      );
+    }
+    const warnings = [];
+    if (emptySlides) {
+      warnings.push(
+        `${emptySlides} ${emptySlides === 1 ? "slide has" : "slides have"} no selectable text. Sovereign retained their extracted visuals where available.`,
       );
     }
     return {
       kind: "powerpoint",
       pages: slideFiles.length,
       chunks,
-      images: [],
+      images,
+      slides,
+      warnings,
     };
   }
 
@@ -503,6 +628,10 @@ async function extractMaterial(buffer, extension, filename, destination) {
       pages: 1,
       chunks: [],
       images: [{ path: destination, filename, page: 1 }],
+      slides: [{ page: 1, slide: 1, text: "" }],
+      warnings: [
+        "This source is visual. Sovereign will inspect the image directly during tutoring.",
+      ],
     };
   }
 
@@ -512,7 +641,59 @@ async function extractMaterial(buffer, extension, filename, destination) {
     pages: 1,
     chunks: splitIntoChunks(text, { filename, page: 1, slide: 1 }),
     images: [],
+    slides: [{ page: 1, slide: 1, text: text.replace(/\s+/g, " ").trim() }],
+    warnings: [],
   };
+}
+
+async function extractPowerPointVisuals(
+  zip,
+  slideFile,
+  { courseId, materialId, filename, slide },
+) {
+  const relationshipsPath = `ppt/slides/_rels/${path.posix.basename(
+    slideFile,
+  )}.rels`;
+  const relationshipsFile = zip.file(relationshipsPath);
+  if (!relationshipsFile) return [];
+
+  const relationships = await relationshipsFile.async("string");
+  const targets = [
+    ...relationships.matchAll(
+      /<Relationship\b[^>]*\bTarget="([^"]+)"[^>]*>/gi,
+    ),
+  ]
+    .map((match) => decodeXml(match[1]))
+    .filter((target) => /(?:^|\/)media\/[^/]+\.(?:png|jpe?g|webp)$/i.test(target));
+  const outputDirectory = path.join(
+    courseDirectory(courseId),
+    "visuals",
+    materialId,
+  );
+  const images = [];
+  await mkdir(outputDirectory, { recursive: true });
+
+  for (const [index, target] of targets.entries()) {
+    const archivePath = path.posix.normalize(
+      path.posix.join(path.posix.dirname(slideFile), target),
+    );
+    const imageFile = zip.file(archivePath);
+    if (!imageFile) continue;
+    const extension = path.extname(archivePath).toLowerCase();
+    const storedPath = path.join(
+      outputDirectory,
+      `slide-${String(slide).padStart(3, "0")}-${index + 1}${extension}`,
+    );
+    await writeFile(storedPath, await imageFile.async("nodebuffer"));
+    images.push({
+      path: storedPath,
+      filename,
+      page: slide,
+      slide,
+    });
+  }
+
+  return images;
 }
 
 function slideNumber(filename) {
@@ -554,7 +735,16 @@ async function retrieveEvidence(course, query) {
     for (const chunk of index.chunks ?? []) {
       candidates.push({ ...chunk, score: scoreText(chunk.text, queryTokens) });
     }
-    for (const image of index.images ?? []) images.push(image);
+    for (const image of index.images ?? []) {
+      const relatedText = (index.chunks ?? [])
+        .filter((chunk) => chunk.slide === image.slide)
+        .map((chunk) => chunk.text)
+        .join(" ");
+      images.push({
+        ...image,
+        score: scoreText(relatedText, queryTokens),
+      });
+    }
   }
 
   candidates.sort((a, b) => b.score - a.score);
@@ -571,13 +761,38 @@ async function retrieveEvidence(course, query) {
 
   return {
     chunks: bounded,
-    images: images.slice(0, 4),
+    images: images
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map((image) => ({
+        path: image.path,
+        filename: image.filename,
+        page: image.page,
+        slide: image.slide,
+      })),
     sources: bounded.map(({ filename, page, slide }) => ({
       filename,
       page,
       slide,
     })),
   };
+}
+
+function contentTypeFor(filename) {
+  const extension = path.extname(filename).toLowerCase();
+  return (
+    {
+      ".pdf": "application/pdf",
+      ".pptx":
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".md": "text/markdown; charset=utf-8",
+      ".txt": "text/plain; charset=utf-8",
+    }[extension] ?? "application/octet-stream"
+  );
 }
 
 function tokenize(text) {

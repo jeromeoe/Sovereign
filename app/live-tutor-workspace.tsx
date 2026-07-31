@@ -24,7 +24,14 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { SovereignMark } from "./brand-mark";
 
 const BRIDGE_URL = "http://127.0.0.1:4317";
@@ -93,29 +100,7 @@ export function LiveTutorWorkspace() {
   const [distillation, setDistillation] = useState<Distillation | null>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (window.matchMedia("(max-width: 980px)").matches) setSourceOpen(false);
-    const savedToken = window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
-    const queryCourse = new URLSearchParams(window.location.search).get("course");
-    const savedCourse =
-      queryCourse ?? window.sessionStorage.getItem("sovereign_course_id") ?? "";
-    setToken(savedToken);
-    if (!savedToken || !savedCourse) {
-      setConnectionState("missing");
-      return;
-    }
-    void loadCourse(savedToken, savedCourse);
-  }, []);
-
-  useEffect(() => {
-    if (distillation) return;
-    const interval = window.setInterval(() => {
-      setRemainingSeconds((current) => Math.max(0, current - 1));
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [distillation]);
-
-  async function loadCourse(savedToken: string, courseId: string) {
+  const loadCourse = useCallback(async (savedToken: string, courseId: string) => {
     try {
       const response = await fetch(`${BRIDGE_URL}/v1/courses`, {
         headers: { Authorization: `Bearer ${savedToken}` },
@@ -124,15 +109,53 @@ export function LiveTutorWorkspace() {
       if (!response.ok) throw new Error("Bridge pairing has expired.");
       const data = await response.json();
       const match = data.courses?.find((item: Course) => item.id === courseId);
-      if (!match) throw new Error("That course is not available in the local library.");
+      if (!match) {
+        throw new Error("That course is not available in the local library.");
+      }
       setCourse(match);
       setConnectionState("ready");
       window.sessionStorage.setItem("sovereign_course_id", match.id);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not reach the bridge.");
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not reach the bridge.",
+      );
       setConnectionState("error");
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const bootstrap = window.setTimeout(() => {
+      if (window.matchMedia("(max-width: 980px)").matches) {
+        setSourceOpen(false);
+      }
+      const savedToken =
+        window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
+      const queryCourse = new URLSearchParams(window.location.search).get(
+        "course",
+      );
+      const savedCourse =
+        queryCourse ??
+        window.sessionStorage.getItem("sovereign_course_id") ??
+        "";
+      setToken(savedToken);
+      if (!savedToken || !savedCourse) {
+        setConnectionState("missing");
+        return;
+      }
+      void loadCourse(savedToken, savedCourse);
+    }, 0);
+    return () => window.clearTimeout(bootstrap);
+  }, [loadCourse]);
+
+  useEffect(() => {
+    if (distillation) return;
+    const interval = window.setInterval(() => {
+      setRemainingSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [distillation]);
 
   async function submitAnswer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
