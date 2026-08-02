@@ -36,6 +36,7 @@ let mainWindow = null;
 let tray = null;
 let bridgeProcess = null;
 let isQuitting = false;
+let openBrowserWhenReady = true;
 let bridgeState = {
   status: "starting",
   pairingCode: "",
@@ -54,7 +55,7 @@ if (!hasSingleInstanceLock) {
   registerProtocolClient();
   app.on("second-instance", (_event, commandLine) => {
     if (commandLine.some((argument) => argument.startsWith("sovereign://"))) {
-      showWindow();
+      void openSovereign();
       return;
     }
     showWindow();
@@ -125,7 +126,7 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Open Companion", click: showWindow },
-      { label: "Open Sovereign", click: () => void shell.openExternal(sovereignUrl) },
+      { label: "Open Sovereign", click: () => void openSovereign() },
       { type: "separator" },
       { label: "Restart connection", click: () => void restartBridge() },
       { label: "Open study library", click: () => void shell.openPath(libraryPath) },
@@ -147,13 +148,28 @@ function registerIpc() {
     bridge: bridgeState,
     codex: codexState,
   }));
-  ipcMain.handle("companion:open-sovereign", () =>
-    shell.openExternal(sovereignUrl),
-  );
+  ipcMain.handle("companion:open-sovereign", openSovereign);
   ipcMain.handle("companion:open-library", () => shell.openPath(libraryPath));
   ipcMain.handle("companion:restart-bridge", restartBridge);
   ipcMain.handle("companion:sign-in", signInToCodex);
   ipcMain.handle("companion:hide", () => mainWindow?.hide());
+}
+
+async function openSovereign() {
+  if (bridgeState.status !== "ready") {
+    openBrowserWhenReady = true;
+    showWindow();
+    return;
+  }
+
+  openBrowserWhenReady = false;
+  const handoffUrl = new URL(sovereignUrl);
+  if (bridgeState.pairingCode) {
+    handoffUrl.hash = new URLSearchParams({
+      pair: bridgeState.pairingCode,
+    }).toString();
+  }
+  await shell.openExternal(handoffUrl.toString());
 }
 
 async function startBridge() {
@@ -335,6 +351,9 @@ function friendlyBridgeError(stderr) {
 function setBridgeState(nextState) {
   bridgeState = nextState;
   broadcastState();
+  if (nextState.status === "ready" && openBrowserWhenReady) {
+    void openSovereign();
+  }
 }
 
 function setCodexState(nextState) {

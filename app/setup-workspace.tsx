@@ -33,12 +33,14 @@ import {
   useState,
 } from "react";
 import { SovereignMark } from "./brand-mark";
+import { COMPANION_RELEASE } from "./companion-release";
 
 const BRIDGE_URL = "http://127.0.0.1:4317";
 const START_COMMAND = "npm run bridge";
 const COMPANION_PROTOCOL_URL = "sovereign://open";
 const COMPANION_DOWNLOAD_URL =
-  process.env.NEXT_PUBLIC_SOVEREIGN_COMPANION_DOWNLOAD_URL?.trim() ?? "";
+  process.env.NEXT_PUBLIC_SOVEREIGN_COMPANION_DOWNLOAD_URL?.trim() ||
+  COMPANION_RELEASE.downloadUrl;
 
 type Material = {
   id: string;
@@ -105,6 +107,7 @@ export function BridgeSetup() {
   const [previewPage, setPreviewPage] = useState(1);
   const [copied, setCopied] = useState(false);
   const [installStage, setInstallStage] = useState<InstallStage>("idle");
+  const [handoffCode, setHandoffCode] = useState("");
   const [error, setError] = useState("");
 
   const checkBridge = useCallback(
@@ -142,38 +145,13 @@ export function BridgeSetup() {
     [],
   );
 
-  useEffect(() => {
-    const savedToken =
-      window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
-    const bootstrap = window.setTimeout(() => {
-      setToken(savedToken);
-      void checkBridge(savedToken);
-    }, 0);
-    return () => window.clearTimeout(bootstrap);
-  }, [checkBridge]);
-
-  useEffect(() => {
-    if (bridgeState !== "offline") return;
-    const poll = window.setInterval(() => {
-      void checkBridge(token, true);
-    }, 2000);
-    return () => window.clearInterval(poll);
-  }, [bridgeState, checkBridge, token]);
-
-  useEffect(() => {
-    return () => {
-      if (materialPreviewUrl) URL.revokeObjectURL(materialPreviewUrl);
-    };
-  }, [materialPreviewUrl]);
-
-  async function pairBridge(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const connectWithPairingCode = useCallback(async (code: string) => {
     setError("");
     try {
       const response = await fetch(`${BRIDGE_URL}/v1/pair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: pairingCode }),
+        body: JSON.stringify({ code }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "That code did not work.");
@@ -189,9 +167,61 @@ export function BridgeSetup() {
       setBridgeState("connected");
     } catch (pairError) {
       setError(
-        pairError instanceof Error ? pairError.message : "That code did not work.",
+        pairError instanceof Error
+          ? pairError.message
+          : "That code did not work.",
       );
     }
+  }, []);
+
+  useEffect(() => {
+    const savedToken =
+      window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const incomingCode = fragment.get("pair")?.trim().toUpperCase() ?? "";
+    const bootstrap = window.setTimeout(() => {
+      if (/^[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(incomingCode)) {
+        setPairingCode(incomingCode);
+        setHandoffCode(incomingCode);
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}`,
+        );
+      }
+      setToken(savedToken);
+      void checkBridge(savedToken);
+    }, 0);
+    return () => window.clearTimeout(bootstrap);
+  }, [checkBridge]);
+
+  useEffect(() => {
+    if (bridgeState !== "offline") return;
+    const poll = window.setInterval(() => {
+      void checkBridge(token, true);
+    }, 2000);
+    return () => window.clearInterval(poll);
+  }, [bridgeState, checkBridge, token]);
+
+  useEffect(() => {
+    if (bridgeState !== "pairing" || !handoffCode) return;
+    const code = handoffCode;
+    const pairing = window.setTimeout(() => {
+      setHandoffCode("");
+      void connectWithPairingCode(code);
+    }, 0);
+    return () => window.clearTimeout(pairing);
+  }, [bridgeState, connectWithPairingCode, handoffCode]);
+
+  useEffect(() => {
+    return () => {
+      if (materialPreviewUrl) URL.revokeObjectURL(materialPreviewUrl);
+    };
+  }, [materialPreviewUrl]);
+
+  async function pairBridge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await connectWithPairingCode(pairingCode);
   }
 
   async function createCourse(event: FormEvent<HTMLFormElement>) {
@@ -549,25 +579,14 @@ export function BridgeSetup() {
                 </div>
 
                 <div className="companion-install-actions">
-                  {COMPANION_DOWNLOAD_URL ? (
-                    <a
-                      className="companion-download-button"
-                      href={COMPANION_DOWNLOAD_URL}
-                      onClick={() => setInstallStage("downloading")}
-                    >
-                      <Download aria-hidden="true" size={17} />
-                      Download for Windows
-                    </a>
-                  ) : (
-                    <button
-                      className="companion-download-button unavailable"
-                      disabled
-                      type="button"
-                    >
-                      <Download aria-hidden="true" size={17} />
-                      Private alpha installer
-                    </button>
-                  )}
+                  <a
+                    className="companion-download-button"
+                    href={COMPANION_DOWNLOAD_URL}
+                    onClick={() => setInstallStage("downloading")}
+                  >
+                    <Download aria-hidden="true" size={17} />
+                    Download for Windows
+                  </a>
                   <button
                     className="companion-open-button"
                     onClick={openCompanion}
@@ -579,9 +598,7 @@ export function BridgeSetup() {
                 </div>
 
                 <p className="companion-install-meta">
-                  {COMPANION_DOWNLOAD_URL
-                    ? "Windows 10 or 11 · about 203 MB · one-time setup"
-                    : "For the private alpha, use the installer shared with your invitation."}
+                  {COMPANION_RELEASE.platform} · {COMPANION_RELEASE.size} · one-time setup
                 </p>
               </section>
 

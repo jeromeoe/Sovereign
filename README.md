@@ -16,9 +16,8 @@ Developing from source additionally requires Node.js `>=22.13.0`.
 
 1. Install **Sovereign Companion**.
 2. Open it from the desktop or Windows Start menu.
-3. Sign in to ChatGPT once if prompted.
-4. Select **Open Sovereign**. The setup page detects the companion
-   automatically and asks for its six-character code.
+3. Sovereign opens the setup page and pairs the browser automatically.
+4. Sign in to ChatGPT once if the Companion asks you to.
 
 The companion lives quietly in the Windows tray, starts the private study
 connection, displays the browser pairing code, and provides direct access to
@@ -27,12 +26,18 @@ folder is required for the packaged app.
 
 `Start Sovereign.cmd` remains available as a developer fallback.
 
-### Alpha distribution note
+### Companion releases
 
 The current installer is approximately 203 MB because it carries the Codex
 runtime locally. It is not yet code-signed, so Windows SmartScreen may show an
-unknown-publisher warning. Code signing and hosted installer delivery are
-required before distributing Sovereign beyond the controlled alpha group.
+unknown-publisher warning. Code signing is still required before distributing
+Sovereign beyond the controlled alpha group.
+
+Versioned installers are published to the public
+`sovereign-companion-releases` Vercel Blob store in Singapore. The current
+release metadata, including its immutable download URL and SHA-256 checksum,
+lives in `app/companion-release.ts`. The setup page links directly to that
+artifact; the installer never passes through a web function.
 
 The setup page supports the full first-run sequence: download, run the
 installer, open the Companion, and automatic local detection. Set
@@ -42,10 +47,10 @@ page clearly identifies the build as a private alpha and directs invited
 testers to the installer shared with them.
 
 Do not commit the installer into the web app. Sites/Cloudflare static assets
-have a 25 MiB per-file limit. For the controlled alpha, publish the installer as
-a release asset (for example, GitHub Releases) and point the variable above to
-that HTTPS URL. For broad distribution, use consistent code signing or the
-Microsoft Store before removing the private-alpha warning.
+have a 25 MiB per-file limit. Build a versioned Companion, publish it to Vercel
+Blob with immutable caching, verify its response size and checksum, then update
+the release metadata. For broad distribution, use consistent code signing or
+the Microsoft Store before removing the private-alpha warning.
 
 ## Developer setup
 

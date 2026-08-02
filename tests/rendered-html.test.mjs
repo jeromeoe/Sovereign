@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function render(pathname = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", {
+    new Request(`http://localhost${pathname}`, {
       headers: { accept: "text/html" },
     }),
     {
@@ -39,6 +39,15 @@ test("server-renders the Sovereign landing page", async () => {
   assert.doesNotMatch(html, /react-loading-skeleton|Your site is taking shape/);
 });
 
+test("server-renders the Companion onboarding shell", async () => {
+  const response = await render("/setup");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /Checking whether Sovereign is already open/);
+  assert.match(html, /Name your first course/);
+});
+
 test("keeps live tutoring, companion setup, and inspectable ingestion in source", async () => {
   const [
     workspace,
@@ -50,6 +59,7 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
     css,
     layout,
     packageJson,
+    companionRelease,
   ] = await Promise.all([
     readFile(new URL("../app/tutor-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/setup-workspace.tsx", import.meta.url), "utf8"),
@@ -60,6 +70,7 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../app/companion-release.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(workspace, /aria-live="polite"/);
@@ -71,6 +82,8 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(setup, /NEXT_PUBLIC_SOVEREIGN_COMPANION_DOWNLOAD_URL/);
   assert.match(setup, /Download for Windows/);
   assert.match(setup, /sovereign:\/\/open/);
+  assert.match(setup, /window\.location\.hash/);
+  assert.match(setup, /connectWithPairingCode/);
   assert.match(setup, /window\.setInterval/);
   assert.match(setup, /XMLHttpRequest/);
   assert.match(setup, /Source check/);
@@ -81,6 +94,9 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(companion, /new BrowserWindow/);
   assert.match(companion, /new Tray/);
   assert.match(companion, /setAsDefaultProtocolClient\("sovereign"/);
+  assert.match(companion, /handoffUrl\.hash/);
+  assert.match(companionRelease, /public\.blob\.vercel-storage\.com/);
+  assert.match(companionRelease, /version:\s*"0\.1\.2"/);
   assert.match(companion, /contextIsolation:\s*true/);
   assert.match(companion, /ELECTRON_RUN_AS_NODE/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);
