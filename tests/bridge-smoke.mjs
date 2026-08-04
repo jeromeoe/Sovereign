@@ -113,7 +113,36 @@ try {
   assert.match(tutoringBody.response, /mechanism-notes\.txt/i);
   assert.ok(tutoringBody.sources.length >= 1);
 
-  console.log("Sovereign Bridge retained, retrieved, and tutored from a real source.");
+  const distilled = await fetch(`${origin}/v1/distil`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ sessionId: "smoke-session" }),
+  });
+  const distilledBody = await distilled.json();
+  assert.equal(distilled.status, 200, distilledBody.error);
+  assert.equal(distilledBody.transcriptDeleted, true);
+  assert.ok(distilledBody.evidence.durationSeconds >= 1);
+  assert.ok(distilledBody.evidence.messageCount >= 2);
+
+  const repeatedDistillation = await fetch(`${origin}/v1/distil`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ sessionId: "smoke-session" }),
+  });
+  assert.equal(repeatedDistillation.status, 404);
+
+  const progress = await fetch(`${origin}/v1/progress`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const progressBody = await progress.json();
+  assert.equal(progress.status, 200);
+  assert.equal(progressBody.totals.sessions, 1);
+  assert.ok(progressBody.totals.durationSeconds >= 1);
+  assert.equal(progressBody.courses[0].id, course.id);
+
+  console.log(
+    "Sovereign retained, tutored, distilled, deleted the transcript, and reported progress.",
+  );
 } finally {
   child.kill();
   await new Promise((resolve) => child.once("close", resolve));

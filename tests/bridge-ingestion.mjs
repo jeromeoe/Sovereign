@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
@@ -92,7 +92,46 @@ try {
   assert.equal(material.visuals, 1);
   assert.match(material.slides[0].text, /feedback loops/i);
 
-  console.log("Sovereign inspected PowerPoint text and retained its slide visual.");
+  const visual = await fetch(
+    `${origin}/v1/courses/${course.id}/materials/${materials[0].id}/visuals/0`,
+    { headers: authorization },
+  );
+  assert.equal(visual.status, 200);
+  assert.equal(visual.headers.get("content-type"), "image/png");
+  assert.ok((await visual.arrayBuffer()).byteLength > 0);
+
+  await writeFile(
+    path.join(dataDirectory, "courses", course.id, "learning-profile.json"),
+    JSON.stringify({
+      entries: [
+        {
+          id: "test-session",
+          distilledAt: new Date().toISOString(),
+          durationSeconds: 1500,
+          messageCount: 6,
+          confidenceDelta: 8,
+          conceptsStudied: ["Feedback loops"],
+          strengths: ["Identifies reinforcing loops"],
+          misconceptions: ["Confuses delay with weak feedback"],
+          nextRetrieval: ["Explain why delays produce oscillation"],
+        },
+      ],
+    }),
+  );
+  const progressResponse = await fetch(`${origin}/v1/progress`, {
+    headers: authorization,
+  });
+  assert.equal(progressResponse.status, 200);
+  const progress = await progressResponse.json();
+  assert.equal(progress.totals.sessions, 1);
+  assert.equal(progress.totals.durationSeconds, 1500);
+  assert.equal(progress.totals.currentStreak, 1);
+  assert.equal(progress.courses[0].confidence, 58);
+  assert.equal(progress.courses[0].misconceptions[0].count, 1);
+
+  console.log(
+    "Sovereign retained a slide visual and summarized local learning progress.",
+  );
 } finally {
   child.kill();
   await new Promise((resolve) => child.once("close", resolve));

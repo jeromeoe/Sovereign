@@ -2,22 +2,17 @@
 
 import {
   ArrowRight,
-  BarChart3,
-  BookOpen,
-  Calendar,
   Check,
   ChevronDown,
   Clock,
   FileImage,
   FileText,
-  FolderOpen,
   HardDrive,
   LoaderCircle,
   Maximize2,
   Menu,
   PanelRight,
   Send,
-  Settings,
   Sparkles,
   Square,
   UploadCloud,
@@ -33,6 +28,7 @@ import {
   useState,
 } from "react";
 import { SovereignMark } from "./brand-mark";
+import { LocalNavigation } from "./local-navigation";
 
 const BRIDGE_URL = "http://127.0.0.1:4317";
 const SESSION_SECONDS = 25 * 60;
@@ -54,6 +50,17 @@ type Course = {
 
 type Source = {
   filename: string;
+  materialId: string;
+  kind: string;
+  preview?: string;
+  page?: number;
+  slide?: number;
+};
+
+type VisualEvidence = {
+  materialId: string;
+  filename: string;
+  visualIndex: number;
   page?: number;
   slide?: number;
 };
@@ -63,6 +70,7 @@ type TutorMessage = {
   role: "student" | "tutor";
   text: string;
   sources?: Source[];
+  visuals?: VisualEvidence[];
 };
 
 type Distillation = {
@@ -71,15 +79,16 @@ type Distillation = {
   misconceptions: string[];
   nextRetrieval: string[];
   confidenceDelta: number;
+  durationSeconds?: number;
+  messageCount?: number;
 };
 
-const navigation = [
-  { label: "Today", icon: Calendar },
-  { label: "Courses", icon: BookOpen },
-  { label: "Library", icon: FolderOpen },
-  { label: "Progress", icon: BarChart3 },
-  { label: "Settings", icon: Settings },
-];
+type EvidencePreview = {
+  kind: "image" | "pdf";
+  url: string;
+  title: string;
+  page: number;
+};
 
 export function LiveTutorWorkspace() {
   const [token, setToken] = useState("");
@@ -98,6 +107,8 @@ export function LiveTutorWorkspace() {
   const [remainingSeconds, setRemainingSeconds] = useState(SESSION_SECONDS);
   const [distilling, setDistilling] = useState(false);
   const [distillation, setDistillation] = useState<Distillation | null>(null);
+  const [evidencePreview, setEvidencePreview] =
+    useState<EvidencePreview | null>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
 
   const loadCourse = useCallback(async (savedToken: string, courseId: string) => {
@@ -193,6 +204,7 @@ export function LiveTutorWorkspace() {
           role: "tutor",
           text: data.response,
           sources: data.sources,
+          visuals: data.visuals,
         },
       ]);
       if (data.sources?.length) setSourceOpen(true);
@@ -250,8 +262,65 @@ export function LiveTutorWorkspace() {
     }
   }
 
-  const latestSources =
-    [...messages].reverse().find((message) => message.sources?.length)?.sources ?? [];
+  const latestTutorEvidence = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "tutor" &&
+        (message.sources?.length || message.visuals?.length),
+    );
+  const latestSources = latestTutorEvidence?.sources ?? [];
+  const latestVisual = latestTutorEvidence?.visuals?.[0];
+  const latestSource = latestSources[0];
+  const sourceMaterial = course?.materials.find(
+    (material) =>
+      material.id === (latestVisual?.materialId ?? latestSource?.materialId),
+  );
+  const previewIdentity = latestVisual
+    ? `visual:${latestVisual.materialId}:${latestVisual.visualIndex}`
+    : sourceMaterial && ["pdf", "image"].includes(sourceMaterial.kind)
+      ? `file:${sourceMaterial.id}:${latestSource?.page ?? 1}`
+      : "";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl = "";
+
+    async function loadEvidencePreview() {
+      if (!course || !token || !previewIdentity) {
+        setEvidencePreview(null);
+        return;
+      }
+      try {
+        const endpoint = latestVisual
+          ? `${BRIDGE_URL}/v1/courses/${course.id}/materials/${latestVisual.materialId}/visuals/${latestVisual.visualIndex}`
+          : `${BRIDGE_URL}/v1/courses/${course.id}/materials/${sourceMaterial?.id}/file`;
+        const response = await fetch(endpoint, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Evidence preview is unavailable.");
+        objectUrl = URL.createObjectURL(await response.blob());
+        setEvidencePreview({
+          kind: latestVisual || sourceMaterial?.kind === "image" ? "image" : "pdf",
+          url: objectUrl,
+          title: latestVisual?.filename ?? latestSource?.filename ?? "Course evidence",
+          page: latestVisual?.slide ?? latestSource?.slide ?? latestSource?.page ?? 1,
+        });
+      } catch (previewError) {
+        if ((previewError as Error).name !== "AbortError") {
+          setEvidencePreview(null);
+        }
+      }
+    }
+
+    void loadEvidencePreview();
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [course, latestSource, latestVisual, previewIdentity, sourceMaterial, token]);
 
   return (
     <div
@@ -263,47 +332,12 @@ export function LiveTutorWorkspace() {
         Skip to tutoring
       </a>
 
-      <nav
-        aria-label="Primary navigation"
-        className={`primary-nav ${mobileMenuOpen ? "mobile-open" : ""}`}
-      >
-        <Link className="brand-lockup live-brand" href="/">
-          <SovereignMark />
-          <span>Sovereign</span>
-        </Link>
-        <button
-          aria-label="Close navigation"
-          className="mobile-close icon-button"
-          onClick={() => setMobileMenuOpen(false)}
-          type="button"
-        >
-          <X size={20} />
-        </button>
-
-        <div className="nav-items">
-          {navigation.map(({ label, icon: Icon }) => (
-            <button
-              aria-current={label === "Courses" ? "page" : undefined}
-              className={label === "Courses" ? "nav-item active" : "nav-item"}
-              key={label}
-              type="button"
-            >
-              <Icon aria-hidden="true" size={20} strokeWidth={1.7} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="bridge-nav-status">
-          <span className={connectionState === "ready" ? "ready" : ""} />
-          <div>
-            <strong>Sovereign Bridge</strong>
-            <small>
-              {connectionState === "ready" ? "Local · connected" : "Not connected"}
-            </small>
-          </div>
-        </div>
-      </nav>
+      <LocalNavigation
+        connected={connectionState === "ready"}
+        current="Today"
+        mobileOpen={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+      />
 
       <header className="session-header">
         <div className="header-course">
@@ -328,10 +362,13 @@ export function LiveTutorWorkspace() {
             <span className={connectionState === "ready" ? "ready" : ""} />
             {connectionState === "ready" ? "Codex connected" : "Checking bridge"}
           </div>
-          <div className="session-timer">
+          <div
+            className={`session-timer ${remainingSeconds === 0 ? "complete" : ""}`}
+            role="timer"
+          >
             <span className="timer-dot" />
             <strong>{formatClock(remainingSeconds)}</strong>
-            <small>remaining</small>
+            <small>{remainingSeconds === 0 ? "focus block complete" : "remaining"}</small>
           </div>
           <button
             aria-pressed={sourceOpen}
@@ -420,6 +457,10 @@ export function LiveTutorWorkspace() {
                 <strong>
                   {distillation.nextRetrieval.join(", ") || "Not scheduled"}
                 </strong>
+              </article>
+              <article>
+                <span>Focused study</span>
+                <strong>{formatStudyDuration(distillation.durationSeconds ?? 0)}</strong>
               </article>
             </div>
             <div className="deletion-notice">
@@ -515,6 +556,33 @@ export function LiveTutorWorkspace() {
                   <X size={16} />
                 </button>
               </div>
+            )}
+
+            {remainingSeconds === 0 && (
+              <section className="live-time-complete" aria-labelledby="focus-complete-title">
+                <Clock aria-hidden="true" size={20} />
+                <div>
+                  <strong id="focus-complete-title">Your focus block is complete.</strong>
+                  <span>Distil what changed, or take five more deliberate minutes.</span>
+                </div>
+                <div>
+                  <button
+                    className="quiet-button"
+                    onClick={() => setRemainingSeconds(5 * 60)}
+                    type="button"
+                  >
+                    Add 5 minutes
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={distilling}
+                    onClick={() => void endAndDistil()}
+                    type="button"
+                  >
+                    End &amp; distil
+                  </button>
+                </div>
+              </section>
             )}
 
             <form className="composer live-composer" onSubmit={submitAnswer}>
@@ -620,6 +688,31 @@ export function LiveTutorWorkspace() {
           ))}
         </div>
 
+        {evidencePreview && (
+          <figure className="live-evidence-preview">
+            <div className="live-evidence-preview-frame">
+              {evidencePreview.kind === "image" ? (
+                // The local bridge supplies this temporary, authenticated blob URL.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  alt={`Diagram from ${evidencePreview.title}, slide ${evidencePreview.page}`}
+                  src={evidencePreview.url}
+                />
+              ) : (
+                <iframe
+                  src={`${evidencePreview.url}#page=${evidencePreview.page}&view=FitH`}
+                  title={`Preview of ${evidencePreview.title}, page ${evidencePreview.page}`}
+                />
+              )}
+            </div>
+            <figcaption>
+              <span>Evidence in the latest answer</span>
+              <strong>{evidencePreview.title}</strong>
+              <small>Slide/page {evidencePreview.page}</small>
+            </figcaption>
+          </figure>
+        )}
+
         {!!latestSources.length && (
           <section className="live-citations">
             <div className="memory-heading">
@@ -632,6 +725,7 @@ export function LiveTutorWorkspace() {
                 <div>
                   <strong>{source.filename}</strong>
                   <small>Slide/page {source.slide ?? source.page ?? "—"}</small>
+                  {source.preview && <p>{source.preview}</p>}
                 </div>
               </div>
             ))}
@@ -691,4 +785,12 @@ function TutorText({ text }: { text: string }) {
 function formatClock(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${(seconds % 60).toString().padStart(2, "0")}`;
+}
+
+function formatStudyDuration(seconds: number) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
 }

@@ -511,6 +511,7 @@ export function BridgeSetup() {
           className={`setup-step setup-connect-step ${
             bridgeState === "connected" ? "complete" : "current"
           }`}
+          id="companion"
         >
           <div className="setup-step-heading">
             <span className="setup-step-icon">
@@ -714,6 +715,7 @@ export function BridgeSetup() {
                 ? "complete"
                 : "current"
           }`}
+          id="course"
         >
           <div className="setup-step-heading">
             <span className="setup-step-icon">
@@ -792,6 +794,7 @@ export function BridgeSetup() {
 
         <article
           className={`setup-step ${!activeCourse ? "locked" : "current"}`}
+          id="materials"
         >
           <div className="setup-step-heading">
             <span className="setup-step-icon">

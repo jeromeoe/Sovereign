@@ -106,6 +106,10 @@ Set `SOVEREIGN_DATA_DIR` to choose another directory.
 - The active transcript exists only in bridge memory.
 - **End & distil** writes concepts, strengths, misconceptions, and next
   retrieval targets to `learning-profile.json`, then deletes the transcript.
+- Study duration, session count, confidence changes, and streak dates are
+  derived locally from the same profile and shown on the Progress page.
+- Relevant past strengths and misconceptions are retrieved into later tutor
+  prompts without restoring or retaining the old conversation.
 
 ## Architecture
 

@@ -48,6 +48,16 @@ test("server-renders the Companion onboarding shell", async () => {
   assert.match(html, /Name your first course/);
 });
 
+test("server-renders the local learning progress shell", async () => {
+  const response = await render("/progress");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /Local learning profile/i);
+  assert.match(html, /Reading the learning evidence on this computer/i);
+  assert.match(html, /href="\/progress"/i);
+});
+
 test("keeps live tutoring, companion setup, and inspectable ingestion in source", async () => {
   const [
     workspace,
@@ -60,6 +70,7 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
     layout,
     packageJson,
     companionRelease,
+    progressWorkspace,
   ] = await Promise.all([
     readFile(new URL("../app/tutor-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/setup-workspace.tsx", import.meta.url), "utf8"),
@@ -71,6 +82,7 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../app/companion-release.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/progress-workspace.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(workspace, /aria-live="polite"/);
@@ -97,8 +109,14 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(companion, /handoffUrl\.hash/);
   assert.match(companion, /checkForUpdates/);
   assert.match(companion, /companion:download-update/);
+  assert.match(bridge, /\/v1\/progress/);
+  assert.match(bridge, /PAST LEARNING EVIDENCE/);
+  assert.match(bridge, /durationSeconds/);
+  assert.match(bridge, /materialVisualMatch/);
   assert.match(companionRelease, /public\.blob\.vercel-storage\.com/);
-  assert.match(companionRelease, /version:\s*"0\.1\.3"/);
+  assert.match(companionRelease, /version:\s*"0\.1\.4"/);
+  assert.match(progressWorkspace, /Retained learning, not retained chat/i);
+  assert.match(progressWorkspace, /currentStreak/);
   assert.match(companion, /contextIsolation:\s*true/);
   assert.match(companion, /ELECTRON_RUN_AS_NODE/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);
