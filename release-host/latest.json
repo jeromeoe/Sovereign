@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "channel": "alpha",
+  "version": "0.1.3",
+  "publishedAt": "2026-08-04T14:36:17.831Z",
+  "platform": "win32-x64",
+  "installer": {
+    "url": "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.3/Sovereign-Companion-Setup-0.1.3.exe",
+    "bytes": 212921267,
+    "sha256": "26F2450D339255AA6BDB8577A75476DCFCA1CC00E618C92247B93955EFD1A27F",
+    "signature": "unsigned"
+  },
+  "notes": [
+    "Checks quietly for new Companion releases.",
+    "Offers one explicit download when an update is ready.",
+    "Keeps studying available when the update service is offline."
+  ]
+}

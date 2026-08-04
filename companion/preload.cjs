@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("sovereignCompanion", {
   openLibrary: () => ipcRenderer.invoke("companion:open-library"),
   restartBridge: () => ipcRenderer.invoke("companion:restart-bridge"),
   signIn: () => ipcRenderer.invoke("companion:sign-in"),
+  checkUpdates: () => ipcRenderer.invoke("companion:check-updates"),
+  downloadUpdate: () => ipcRenderer.invoke("companion:download-update"),
   hide: () => ipcRenderer.invoke("companion:hide"),
   onState: (listener) => {
     const handler = (_event, state) => listener(state);

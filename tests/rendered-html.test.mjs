@@ -95,8 +95,10 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(companion, /new Tray/);
   assert.match(companion, /setAsDefaultProtocolClient\("sovereign"/);
   assert.match(companion, /handoffUrl\.hash/);
+  assert.match(companion, /checkForUpdates/);
+  assert.match(companion, /companion:download-update/);
   assert.match(companionRelease, /public\.blob\.vercel-storage\.com/);
-  assert.match(companionRelease, /version:\s*"0\.1\.2"/);
+  assert.match(companionRelease, /version:\s*"0\.1\.3"/);
   assert.match(companion, /contextIsolation:\s*true/);
   assert.match(companion, /ELECTRON_RUN_AS_NODE/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);

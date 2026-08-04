@@ -11,6 +11,11 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  isNewerVersion,
+  parseReleaseManifest,
+  RELEASE_MANIFEST_URL,
+} from "./update-policy.mjs";
 
 const companionDirectory = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = app.isPackaged
@@ -31,12 +36,17 @@ const sovereignUrl =
   "https://sovereign-study-jerome.milky-grape-3300.chatgpt.site/setup";
 const libraryPath = path.join(app.getPath("home"), "Sovereign Library");
 const statusFile = process.env.SOVEREIGN_COMPANION_STATUS_FILE ?? "";
+const releaseManifestUrl =
+  process.env.SOVEREIGN_RELEASE_MANIFEST_URL ?? RELEASE_MANIFEST_URL;
+const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
 
 let mainWindow = null;
 let tray = null;
 let bridgeProcess = null;
 let isQuitting = false;
 let openBrowserWhenReady = true;
+let updateCheck = null;
+let updateTimer = null;
 let bridgeState = {
   status: "starting",
   pairingCode: "",
@@ -46,6 +56,13 @@ let bridgeState = {
 let codexState = {
   status: "checking",
   message: "Checking your ChatGPT connection…",
+};
+let updateState = {
+  status: "checking",
+  currentVersion: app.getVersion(),
+  latestVersion: "",
+  downloadUrl: "",
+  message: "Checking quietly for updates.",
 };
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -78,7 +95,12 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   registerIpc();
-  await Promise.all([startBridge(), checkCodexLogin()]);
+  await Promise.all([startBridge(), checkCodexLogin(), checkForUpdates()]);
+  updateTimer = setInterval(
+    () => void checkForUpdates({ quiet: true }),
+    updateCheckIntervalMs,
+  );
+  updateTimer.unref?.();
 });
 
 app.on("window-all-closed", () => {
@@ -87,6 +109,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  if (updateTimer) clearInterval(updateTimer);
   stopBridge();
 });
 
@@ -147,12 +170,93 @@ function registerIpc() {
   ipcMain.handle("companion:get-state", () => ({
     bridge: bridgeState,
     codex: codexState,
+    update: updateState,
   }));
   ipcMain.handle("companion:open-sovereign", openSovereign);
   ipcMain.handle("companion:open-library", () => shell.openPath(libraryPath));
   ipcMain.handle("companion:restart-bridge", restartBridge);
   ipcMain.handle("companion:sign-in", signInToCodex);
+  ipcMain.handle("companion:check-updates", () => checkForUpdates());
+  ipcMain.handle("companion:download-update", downloadUpdate);
   ipcMain.handle("companion:hide", () => mainWindow?.hide());
+}
+
+async function checkForUpdates({ quiet = false } = {}) {
+  if (updateCheck) return updateCheck;
+
+  updateCheck = performUpdateCheck({ quiet }).finally(() => {
+    updateCheck = null;
+  });
+  return updateCheck;
+}
+
+async function performUpdateCheck({ quiet }) {
+  if (!quiet) {
+    setUpdateState({
+      ...updateState,
+      status: "checking",
+      message: "Checking quietly for updates.",
+    });
+  }
+
+  try {
+    const manifestUrl = new URL(releaseManifestUrl);
+    manifestUrl.searchParams.set("check", Date.now().toString());
+    const response = await fetch(manifestUrl, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) {
+      throw new Error(`Update service returned ${response.status}.`);
+    }
+
+    const source = await response.text();
+    if (source.length > 64_000) {
+      throw new Error("Update manifest is unexpectedly large.");
+    }
+    const release = parseReleaseManifest(JSON.parse(source));
+    if (!release) throw new Error("Update manifest is invalid.");
+
+    if (isNewerVersion(release.version, app.getVersion())) {
+      setUpdateState({
+        status: "available",
+        currentVersion: app.getVersion(),
+        latestVersion: release.version,
+        downloadUrl: release.downloadUrl,
+        message: `Version ${release.version} is ready to download.`,
+      });
+      return updateState;
+    }
+
+    setUpdateState({
+      status: "current",
+      currentVersion: app.getVersion(),
+      latestVersion: release.version,
+      downloadUrl: "",
+      message: `Version ${app.getVersion()} is current.`,
+    });
+  } catch {
+    if (!quiet || updateState.status === "checking") {
+      setUpdateState({
+        ...updateState,
+        status: "unavailable",
+        downloadUrl: "",
+        message: "Couldn't check right now. Sovereign will keep working.",
+      });
+    }
+  }
+  return updateState;
+}
+
+async function downloadUpdate() {
+  if (updateState.status !== "available" || !updateState.downloadUrl) {
+    return { opened: false };
+  }
+  const downloadUrl = new URL(updateState.downloadUrl);
+  if (downloadUrl.protocol !== "https:") return { opened: false };
+  await shell.openExternal(downloadUrl.toString());
+  return { opened: true };
 }
 
 async function openSovereign() {
@@ -361,6 +465,11 @@ function setCodexState(nextState) {
   broadcastState();
 }
 
+function setUpdateState(nextState) {
+  updateState = nextState;
+  broadcastState();
+}
+
 function broadcastState() {
   if (statusFile) {
     void writeStatusFile();
@@ -369,6 +478,7 @@ function broadcastState() {
   mainWindow.webContents.send("companion:state", {
     bridge: bridgeState,
     codex: codexState,
+    update: updateState,
   });
 }
 
@@ -377,7 +487,11 @@ async function writeStatusFile() {
     await mkdir(path.dirname(statusFile), { recursive: true });
     await writeFile(
       statusFile,
-      JSON.stringify({ bridge: bridgeState, codex: codexState }, null, 2),
+      JSON.stringify(
+        { bridge: bridgeState, codex: codexState, update: updateState },
+        null,
+        2,
+      ),
     );
   } catch {
     // Diagnostics must never interrupt the companion.

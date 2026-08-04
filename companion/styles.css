@@ -212,8 +212,18 @@ h1 {
 }
 
 .row-indicator.connected,
-.row-indicator.ready {
+.row-indicator.ready,
+.row-indicator.current {
   background: var(--stem);
+}
+
+.row-indicator.available {
+  background: var(--evidence);
+  box-shadow: 0 0 0 4px var(--evidence-soft);
+}
+
+.row-indicator.unavailable {
+  background: var(--ink-soft);
 }
 
 .row-indicator.signed-out,
@@ -244,8 +254,18 @@ footer button {
   color: var(--evidence);
   font-size: 11px;
   font-weight: 700;
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 5px;
+}
+
+.text-action:hover:not(:disabled),
+footer button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.text-action:disabled,
+footer button:disabled {
+  color: var(--ink-soft);
 }
 
 .error-actions {
