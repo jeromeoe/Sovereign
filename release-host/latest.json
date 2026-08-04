@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "channel": "alpha",
-  "version": "0.1.4",
-  "publishedAt": "2026-08-04T15:13:52.109Z",
+  "version": "0.1.5",
+  "publishedAt": "2026-08-04T15:26:25.805Z",
   "platform": "win32-x64",
   "installer": {
-    "url": "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.4/Sovereign-Companion-Setup-0.1.4.exe",
-    "bytes": 212922888,
-    "sha256": "78C513FFABBC86D3AAE091C53B344EEEB8EC33ED74C7F513D7E5AB7F3018D6CA",
+    "url": "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.5/Sovereign-Companion-Setup-0.1.5.exe",
+    "bytes": 212923400,
+    "sha256": "FE148D6735F1393BEB891B5307875331FBBC02CB4F0C2C68C700712F1FA0C2C1",
     "signature": "unsigned"
   },
   "notes": [
-    "Carries relevant past learning evidence into future tutoring sessions.",
-    "Serves cited PowerPoint diagrams directly from the local course library.",
-    "Retains study duration, confidence changes, misconceptions, and next review targets."
+    "Adds Explain, Recall, Revision, and Exam tutoring modes.",
+    "Starts a dedicated ten-minute answer clock when an exam question is generated.",
+    "Schedules the next spaced review locally from demonstrated understanding."
   ]
 }

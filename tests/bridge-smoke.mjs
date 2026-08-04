@@ -123,6 +123,7 @@ try {
   assert.equal(distilledBody.transcriptDeleted, true);
   assert.ok(distilledBody.evidence.durationSeconds >= 1);
   assert.ok(distilledBody.evidence.messageCount >= 2);
+  assert.ok(Date.parse(distilledBody.evidence.reviewDueAt) > Date.now());
 
   const repeatedDistillation = await fetch(`${origin}/v1/distil`, {
     method: "POST",

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BookOpen,
   Brain,
+  CalendarClock,
   Clock3,
   Flame,
   LoaderCircle,
@@ -28,6 +29,8 @@ type CourseProgress = {
   durationSeconds: number;
   confidence: number;
   lastStudiedAt: string;
+  reviewDueAt: string;
+  reviewDue: boolean;
   concepts: RankedEvidence[];
   misconceptions: RankedEvidence[];
   nextRetrieval: RankedEvidence[];
@@ -39,6 +42,7 @@ type ProgressData = {
     durationSeconds: number;
     currentStreak: number;
     courses: number;
+    reviewsDue: number;
   };
   courses: CourseProgress[];
 };
@@ -182,6 +186,11 @@ export function LocalProgressWorkspace() {
                   {data.totals.currentStreak === 1 ? "" : "s"}
                 </strong>
               </article>
+              <article>
+                <CalendarClock aria-hidden="true" size={19} />
+                <span>Reviews due</span>
+                <strong>{data.totals.reviewsDue}</strong>
+              </article>
             </section>
 
             {data.totals.sessions === 0 ? (
@@ -202,7 +211,9 @@ export function LocalProgressWorkspace() {
                 {priorityCourse && (
                   <section className="progress-priority">
                     <div>
-                      <span>Recommended next</span>
+                      <span>
+                        {priorityCourse.reviewDue ? "Review due now" : "Recommended next"}
+                      </span>
                       <strong>{priorityCourse.code}</strong>
                     </div>
                     <div>
@@ -236,6 +247,11 @@ export function LocalProgressWorkspace() {
                           {course.sessions} session{course.sessions === 1 ? "" : "s"} ·{" "}
                           {formatDuration(course.durationSeconds)}
                         </small>
+                        {course.reviewDueAt && (
+                          <small className={course.reviewDue ? "review-due" : ""}>
+                            {formatReviewDue(course.reviewDueAt)}
+                          </small>
+                        )}
                       </div>
                       <div className="course-confidence">
                         <div>
@@ -291,4 +307,17 @@ function formatDuration(seconds: number) {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
+function formatReviewDue(value: string) {
+  const due = new Date(value);
+  if (Number.isNaN(due.getTime())) return "";
+  const day = 86_400_000;
+  const today = new Date();
+  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const difference = Math.round((dueDay.getTime() - todayDay.getTime()) / day);
+  if (difference <= 0) return "Review due now";
+  if (difference === 1) return "Review tomorrow";
+  return `Review in ${difference} days`;
 }

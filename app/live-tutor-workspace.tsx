@@ -2,9 +2,11 @@
 
 import {
   ArrowRight,
+  BrainCircuit,
   Check,
   ChevronDown,
   Clock,
+  ClipboardCheck,
   FileImage,
   FileText,
   HardDrive,
@@ -12,6 +14,7 @@ import {
   Maximize2,
   Menu,
   PanelRight,
+  Repeat2,
   Send,
   Sparkles,
   Square,
@@ -81,6 +84,8 @@ type Distillation = {
   confidenceDelta: number;
   durationSeconds?: number;
   messageCount?: number;
+  reviewAfterDays?: number;
+  reviewDueAt?: string;
 };
 
 type EvidencePreview = {
@@ -89,6 +94,40 @@ type EvidencePreview = {
   title: string;
   page: number;
 };
+
+type StudyMode = "explain" | "recall" | "revision" | "exam";
+
+const studyModes: Array<{
+  id: StudyMode;
+  label: string;
+  description: string;
+  icon: typeof BrainCircuit;
+}> = [
+  {
+    id: "explain",
+    label: "Explain",
+    description: "Build the mechanism from first principles",
+    icon: BrainCircuit,
+  },
+  {
+    id: "recall",
+    label: "Recall",
+    description: "Question first, answer after your attempt",
+    icon: Repeat2,
+  },
+  {
+    id: "revision",
+    label: "Revision",
+    description: "Target retained weak points and due reviews",
+    icon: Sparkles,
+  },
+  {
+    id: "exam",
+    label: "Exam",
+    description: "Timed question, then precise marking",
+    icon: ClipboardCheck,
+  },
+];
 
 export function LiveTutorWorkspace() {
   const [token, setToken] = useState("");
@@ -107,6 +146,9 @@ export function LiveTutorWorkspace() {
   const [remainingSeconds, setRemainingSeconds] = useState(SESSION_SECONDS);
   const [distilling, setDistilling] = useState(false);
   const [distillation, setDistillation] = useState<Distillation | null>(null);
+  const [studyMode, setStudyMode] = useState<StudyMode>("explain");
+  const [examTimerActive, setExamTimerActive] = useState(false);
+  const [examRemainingSeconds, setExamRemainingSeconds] = useState(10 * 60);
   const [evidencePreview, setEvidencePreview] =
     useState<EvidencePreview | null>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
@@ -168,6 +210,14 @@ export function LiveTutorWorkspace() {
     return () => window.clearInterval(interval);
   }, [distillation]);
 
+  useEffect(() => {
+    if (!examTimerActive || examRemainingSeconds === 0) return;
+    const interval = window.setInterval(() => {
+      setExamRemainingSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [examRemainingSeconds, examTimerActive]);
+
   async function submitAnswer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const question = answer.trim();
@@ -181,6 +231,8 @@ export function LiveTutorWorkspace() {
     setAnswer("");
     setThinking(true);
     setError("");
+    const answeringExamQuestion = studyMode === "exam" && examTimerActive;
+    if (answeringExamQuestion) setExamTimerActive(false);
 
     try {
       const response = await fetch(`${BRIDGE_URL}/v1/chat`, {
@@ -193,6 +245,7 @@ export function LiveTutorWorkspace() {
           courseId: course.id,
           sessionId,
           message: question,
+          mode: studyMode,
         }),
       });
       const data = await response.json();
@@ -208,6 +261,10 @@ export function LiveTutorWorkspace() {
         },
       ]);
       if (data.sources?.length) setSourceOpen(true);
+      if (studyMode === "exam" && !answeringExamQuestion) {
+        setExamRemainingSeconds(10 * 60);
+        setExamTimerActive(true);
+      }
     } catch (chatError) {
       setError(
         chatError instanceof Error ? chatError.message : "The tutor could not respond.",
@@ -215,6 +272,23 @@ export function LiveTutorWorkspace() {
     } finally {
       setThinking(false);
     }
+  }
+
+  function chooseStudyMode(mode: StudyMode) {
+    setStudyMode(mode);
+    if (mode !== "exam") {
+      setExamTimerActive(false);
+      setExamRemainingSeconds(10 * 60);
+    }
+    setAnswer(
+      {
+        explain: "Explain the most important mechanism in these slides from first principles.",
+        recall: "Test my recall of the most foundational concept, one question at a time.",
+        revision: "Use my retained weak points to choose what I should revise now.",
+        exam: "Give me one exam-style question from this material. Do not show the solution yet.",
+      }[mode],
+    );
+    answerRef.current?.focus();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -457,6 +531,11 @@ export function LiveTutorWorkspace() {
                 <strong>
                   {distillation.nextRetrieval.join(", ") || "Not scheduled"}
                 </strong>
+                {distillation.reviewDueAt && (
+                  <small className="distilled-review-date">
+                    Scheduled {formatReviewDate(distillation.reviewDueAt)}
+                  </small>
+                )}
               </article>
               <article>
                 <span>Focused study</span>
@@ -507,6 +586,53 @@ export function LiveTutorWorkspace() {
                 </p>
               )}
             </section>
+
+            <section className="study-mode-control" aria-labelledby="study-mode-heading">
+              <div>
+                <strong id="study-mode-heading">How should Sovereign teach?</strong>
+                <span>{studyModes.find((mode) => mode.id === studyMode)?.description}</span>
+              </div>
+              <div className="study-mode-options">
+                {studyModes.map(({ id, label, icon: Icon }) => (
+                  <button
+                    aria-pressed={studyMode === id}
+                    className={studyMode === id ? "selected" : ""}
+                    key={id}
+                    onClick={() => chooseStudyMode(id)}
+                    type="button"
+                  >
+                    <Icon aria-hidden="true" size={15} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {studyMode === "exam" && examTimerActive && (
+              <section
+                className={`exam-question-clock ${
+                  examRemainingSeconds === 0 ? "expired" : ""
+                }`}
+                aria-live="polite"
+              >
+                <Clock aria-hidden="true" size={18} />
+                <div>
+                  <strong>
+                    {examRemainingSeconds === 0
+                      ? "Time. Submit what you have."
+                      : "Exam answer time"}
+                  </strong>
+                  <span>
+                    {examRemainingSeconds === 0
+                      ? "Sovereign will mark the answer as written."
+                      : "The solution stays hidden until you submit."}
+                  </span>
+                </div>
+                <time dateTime={`PT${examRemainingSeconds}S`}>
+                  {formatClock(examRemainingSeconds)}
+                </time>
+              </section>
+            )}
 
             <div className="live-message-list">
               {messages.map((message) =>
@@ -593,7 +719,11 @@ export function LiveTutorWorkspace() {
                 id="live-student-answer"
                 onChange={(event) => setAnswer(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about a slide, concept, or past mistake…"
+                placeholder={
+                  studyMode === "exam" && examTimerActive
+                    ? "Write your exam answer…"
+                    : "Ask about a slide, concept, or past mistake…"
+                }
                 ref={answerRef}
                 rows={3}
                 value={answer}
@@ -793,4 +923,13 @@ function formatStudyDuration(seconds: number) {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
+function formatReviewDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "for your next session";
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+  }).format(date);
 }

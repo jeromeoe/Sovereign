@@ -1,10 +1,10 @@
 export const COMPANION_RELEASE = {
-  version: "0.1.4",
+  version: "0.1.5",
   platform: "Windows 10 or 11",
   architecture: "x64",
   size: "203 MB",
-  bytes: 212_922_888,
-  sha256: "78C513FFABBC86D3AAE091C53B344EEEB8EC33ED74C7F513D7E5AB7F3018D6CA",
+  bytes: 212_923_400,
+  sha256: "FE148D6735F1393BEB891B5307875331FBBC02CB4F0C2C68C700712F1FA0C2C1",
   downloadUrl:
-    "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.4/Sovereign-Companion-Setup-0.1.4.exe",
+    "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.5/Sovereign-Companion-Setup-0.1.5.exe",
 } as const;

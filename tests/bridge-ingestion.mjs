@@ -107,6 +107,7 @@ try {
         {
           id: "test-session",
           distilledAt: new Date().toISOString(),
+          reviewDueAt: new Date(Date.now() - 60_000).toISOString(),
           durationSeconds: 1500,
           messageCount: 6,
           confidenceDelta: 8,
@@ -126,8 +127,10 @@ try {
   assert.equal(progress.totals.sessions, 1);
   assert.equal(progress.totals.durationSeconds, 1500);
   assert.equal(progress.totals.currentStreak, 1);
+  assert.equal(progress.totals.reviewsDue, 1);
   assert.equal(progress.courses[0].confidence, 58);
   assert.equal(progress.courses[0].misconceptions[0].count, 1);
+  assert.equal(progress.courses[0].reviewDue, true);
 
   console.log(
     "Sovereign retained a slide visual and summarized local learning progress.",

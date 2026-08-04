@@ -112,11 +112,14 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(bridge, /\/v1\/progress/);
   assert.match(bridge, /PAST LEARNING EVIDENCE/);
   assert.match(bridge, /durationSeconds/);
+  assert.match(bridge, /reviewAfterDays/);
+  assert.match(bridge, /normalizeStudyMode/);
   assert.match(bridge, /materialVisualMatch/);
   assert.match(companionRelease, /public\.blob\.vercel-storage\.com/);
-  assert.match(companionRelease, /version:\s*"0\.1\.4"/);
+  assert.match(companionRelease, /version:\s*"0\.1\.5"/);
   assert.match(progressWorkspace, /Retained learning, not retained chat/i);
   assert.match(progressWorkspace, /currentStreak/);
+  assert.match(progressWorkspace, /reviewsDue/);
   assert.match(companion, /contextIsolation:\s*true/);
   assert.match(companion, /ELECTRON_RUN_AS_NODE/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);

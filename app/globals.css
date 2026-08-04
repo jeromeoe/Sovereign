@@ -3760,6 +3760,110 @@ button:disabled {
   max-width: 690px;
 }
 
+.study-mode-control {
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 18px 0;
+}
+
+.study-mode-control > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.study-mode-control > div:first-child strong {
+  font-size: 10px;
+}
+
+.study-mode-control > div:first-child span {
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.study-mode-options {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.study-mode-options button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  display: flex;
+  font-size: 9px;
+  font-weight: 700;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 9px;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.study-mode-options button:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.study-mode-options button.selected {
+  background: var(--stem-soft);
+  border-color: color-mix(in oklch, var(--stem) 24%, var(--rule));
+  color: var(--stem-hover);
+}
+
+.exam-question-clock {
+  align-items: center;
+  background: color-mix(in oklch, var(--evidence-soft) 50%, var(--surface));
+  border-bottom: 1px solid color-mix(in oklch, var(--evidence) 24%, var(--rule));
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  padding: 15px 12px;
+}
+
+.exam-question-clock > svg {
+  color: var(--evidence-dark);
+}
+
+.exam-question-clock > div {
+  display: grid;
+  gap: 3px;
+}
+
+.exam-question-clock strong {
+  font-size: 10px;
+}
+
+.exam-question-clock span {
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+
+.exam-question-clock time {
+  color: var(--evidence-dark);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.exam-question-clock.expired {
+  background: color-mix(in oklch, var(--danger) 7%, var(--surface));
+  border-color: color-mix(in oklch, var(--danger) 24%, var(--rule));
+}
+
+.exam-question-clock.expired > svg,
+.exam-question-clock.expired time {
+  color: var(--danger);
+}
+
 .live-message-list {
   display: grid;
 }
@@ -4070,6 +4174,11 @@ button:disabled {
   line-height: 1.55;
 }
 
+.distilled-review-date {
+  color: var(--evidence-dark);
+  font-size: 9px;
+}
+
 .session-timer.complete {
   background: var(--evidence-soft);
   color: var(--evidence-dark);
@@ -4246,7 +4355,7 @@ button:disabled {
   border-bottom: 1px solid var(--rule);
   border-top: 1px solid var(--rule);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   margin-top: 42px;
 }
 
@@ -4394,6 +4503,11 @@ button:disabled {
 .course-progress-name small {
   color: var(--ink-soft);
   font-size: 9px;
+}
+
+.course-progress-name small.review-due {
+  color: var(--evidence-dark);
+  font-weight: 700;
 }
 
 .course-confidence {
@@ -4900,5 +5014,19 @@ button:disabled {
 
   .live-time-complete > div:last-child {
     grid-column: 1 / -1;
+  }
+
+  .study-mode-control {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .study-mode-options {
+    justify-content: flex-start;
+  }
+
+  .study-mode-options button {
+    min-height: 42px;
   }
 }
