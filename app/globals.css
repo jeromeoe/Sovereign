@@ -4675,11 +4675,6 @@ button:disabled {
   }
 
   .landing-open {
-    font-size: 0;
-  }
-
-  .landing-open::before {
-    content: "Open";
     font-size: 11px;
   }
 
