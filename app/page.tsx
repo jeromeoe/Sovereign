@@ -235,7 +235,12 @@ export default function Home() {
           <span>Sovereign</span>
         </Link>
         <p>Study with intent.</p>
-        <span>Private alpha · 2026</span>
+        <div className="landing-legal-links">
+          <Link href="/legal/terms">Terms</Link>
+          <Link href="/legal/privacy">Privacy</Link>
+          <Link href="/legal/notices">Notices</Link>
+          <span>Closed beta · 2026</span>
+        </div>
       </footer>
     </main>
   );

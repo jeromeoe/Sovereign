@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "channel": "alpha",
-  "version": "0.1.6",
-  "publishedAt": "2026-08-05T03:13:23.302Z",
+  "version": "0.1.7",
+  "publishedAt": "2026-08-05T14:28:50.8776374Z",
   "platform": "win32-x64",
   "installer": {
-    "url": "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.6/Sovereign-Companion-Setup-0.1.6.exe",
-    "bytes": 212925457,
-    "sha256": "ACC7E19D0ECC378A8C5498AB811512F63FEAB10FA04E9EA19F035C277BFDBFFC",
+    "url": "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.7/Sovereign-Companion-Setup-0.1.7.exe",
+    "bytes": 212929323,
+    "sha256": "21EE0A4F158D0E8731869B085EAF54B60351FDEB14FFA6966F7E16739054C4FB",
     "signature": "unsigned"
   },
   "notes": [
-    "Recovers an already-running Companion during onboarding without asking for terminal commands.",
-    "Adds safe time limits and bounded output handling for Codex operations.",
-    "Protects local study files during failed uploads and detects damaged library data before writing."
+    "Adds an accessible legal and third-party notices entry point inside the Companion.",
+    "Packages the Apache 2.0 licence and Sovereign third-party notices with every installation.",
+    "Pairs with the new question-led onboarding and versioned terms acceptance."
   ]
 }

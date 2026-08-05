@@ -34,6 +34,7 @@ const codexCli = path.join(
 const sovereignUrl =
   process.env.SOVEREIGN_WEB_URL ??
   "https://sovereign-study-jerome.milky-grape-3300.chatgpt.site/setup";
+const legalUrl = new URL("/legal/notices", sovereignUrl).toString();
 const libraryPath = path.join(app.getPath("home"), "Sovereign Library");
 const statusFile = process.env.SOVEREIGN_COMPANION_STATUS_FILE ?? "";
 const releaseManifestUrl =
@@ -179,6 +180,7 @@ function registerIpc() {
   ipcMain.handle("companion:sign-in", signInToCodex);
   ipcMain.handle("companion:check-updates", () => checkForUpdates());
   ipcMain.handle("companion:download-update", downloadUpdate);
+  ipcMain.handle("companion:open-legal", () => shell.openExternal(legalUrl));
   ipcMain.handle("companion:hide", () => mainWindow?.hide());
 }
 

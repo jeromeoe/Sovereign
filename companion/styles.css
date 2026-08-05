@@ -300,6 +300,12 @@ footer button {
   white-space: nowrap;
 }
 
+.footer-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
 [hidden] {
   display: none !important;
 }

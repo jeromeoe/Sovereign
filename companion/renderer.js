@@ -14,6 +14,7 @@ const updateAction = document.querySelector("#update-action");
 const errorActions = document.querySelector("#error-actions");
 const restart = document.querySelector("#restart");
 const hide = document.querySelector("#hide");
+const legal = document.querySelector("#legal");
 
 window.sovereignCompanion.getState().then(renderState);
 window.sovereignCompanion.onState(renderState);
@@ -29,6 +30,7 @@ restart.addEventListener("click", () =>
 );
 signIn.addEventListener("click", () => window.sovereignCompanion.signIn());
 hide.addEventListener("click", () => window.sovereignCompanion.hide());
+legal.addEventListener("click", () => window.sovereignCompanion.openLegal());
 updateAction.addEventListener("click", () => {
   if (updateAction.dataset.action === "download") {
     window.sovereignCompanion.downloadUpdate();

@@ -44,8 +44,38 @@ test("server-renders the Companion onboarding shell", async () => {
   assert.equal(response.status, 200);
 
   const html = await response.text();
-  assert.match(html, /Checking whether Sovereign is already open/);
-  assert.match(html, /Name your first course/);
+  assert.match(html, /Preparing your study space/);
+  assert.match(html, /Sovereign/);
+});
+
+test("server-renders the legal documents", async () => {
+  for (const [pathname, heading] of [
+    ["/legal/terms", "Terms of Service and Sale"],
+    ["/legal/privacy", "Privacy Notice"],
+    ["/legal/notices", "Third-party notices"],
+  ]) {
+    const response = await render(pathname);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), new RegExp(heading, "i"));
+  }
+});
+
+test("keeps discovery and versioned legal consent in source", async () => {
+  const [onboarding, legal, notices, packageJson] = await Promise.all([
+    readFile(new URL("../app/onboarding-prelude.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/legal.ts", import.meta.url), "utf8"),
+    readFile(new URL("../THIRD_PARTY_NOTICES.md", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(onboarding, /Where does your course material usually end up/);
+  assert.match(onboarding, /Terms of Service and Sale/);
+  assert.match(onboarding, /LEGAL_ACCEPTANCE_KEY/);
+  assert.match(onboarding, /not affiliated with or endorsed by OpenAI or Anthropic/);
+  assert.match(legal, /LEGAL_VERSION/);
+  assert.match(notices, /Apache License, Version 2\.0/);
+  assert.match(packageJson, /THIRD_PARTY_NOTICES\.md/);
+  assert.match(packageJson, /licenses\/\*\*\/\*/);
 });
 
 test("server-renders the local learning progress shell", async () => {
@@ -127,7 +157,7 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(bridge, /preserveCorruptJson/);
   assert.match(bridge, /removeRetainedMaterial/);
   assert.match(companionRelease, /public\.blob\.vercel-storage\.com/);
-  assert.match(companionRelease, /version:\s*"0\.1\.6"/);
+  assert.match(companionRelease, /version:\s*"0\.1\.7"/);
   assert.match(progressWorkspace, /Retained learning, not retained chat/i);
   assert.match(progressWorkspace, /currentStreak/);
   assert.match(progressWorkspace, /reviewsDue/);

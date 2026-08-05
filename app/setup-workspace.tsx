@@ -43,6 +43,7 @@ import {
   writeCourseId,
 } from "./bridge-client";
 import { COMPANION_RELEASE } from "./companion-release";
+import { OnboardingPrelude } from "./onboarding-prelude";
 
 const START_COMMAND = "npm run bridge";
 const COMPANION_PROTOCOL_URL = "sovereign://open";
@@ -96,6 +97,7 @@ type InstallStage = "idle" | "downloading" | "opening";
 
 export function BridgeSetup() {
   const router = useRouter();
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [bridgeState, setBridgeState] = useState<BridgeState>("checking");
   const [pairingCode, setPairingCode] = useState("");
   const [token, setToken] = useState("");
@@ -118,6 +120,7 @@ export function BridgeSetup() {
   const [handoffCode, setHandoffCode] = useState("");
   const [error, setError] = useState("");
   const bridgeCheckInFlight = useRef(false);
+  const completeOnboarding = useCallback(() => setOnboardingComplete(true), []);
 
   const checkBridge = useCallback(
     async (existingToken = "", silent = false) => {
@@ -472,6 +475,10 @@ export function BridgeSetup() {
       setBridgeState("pairing");
     }
     return response;
+  }
+
+  if (!onboardingComplete) {
+    return <OnboardingPrelude onComplete={completeOnboarding} />;
   }
 
   return (
@@ -1132,6 +1139,11 @@ export function BridgeSetup() {
             <ArrowRight aria-hidden="true" size={18} />
           </button>
         </div>
+        <nav className="setup-legal-links" aria-label="Legal information">
+          <Link href="/legal/terms">Terms of Service &amp; Sale</Link>
+          <Link href="/legal/privacy">Privacy</Link>
+          <Link href="/legal/notices">Third-party notices</Link>
+        </nav>
       </section>
     </main>
   );

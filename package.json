@@ -1,6 +1,6 @@
 {
   "name": "sovereign",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A private, source-grounded AI tutoring companion.",
   "author": "Sovereign",
   "private": true,
@@ -74,6 +74,8 @@
       "companion/**/*",
       "bridge/**/*",
       "public/favicon.svg",
+      "THIRD_PARTY_NOTICES.md",
+      "licenses/**/*",
       "package.json",
       "!node_modules/@img{,/**/*}",
       "!node_modules/@next{,/**/*}",

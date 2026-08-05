@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("sovereignCompanion", {
   signIn: () => ipcRenderer.invoke("companion:sign-in"),
   checkUpdates: () => ipcRenderer.invoke("companion:check-updates"),
   downloadUpdate: () => ipcRenderer.invoke("companion:download-update"),
+  openLegal: () => ipcRenderer.invoke("companion:open-legal"),
   hide: () => ipcRenderer.invoke("companion:hide"),
   onState: (listener) => {
     const handler = (_event, state) => listener(state);
