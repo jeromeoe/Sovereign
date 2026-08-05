@@ -71,6 +71,9 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
     packageJson,
     companionRelease,
     progressWorkspace,
+    bridgeClient,
+    localNavigation,
+    liveTutor,
   ] = await Promise.all([
     readFile(new URL("../app/tutor-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/setup-workspace.tsx", import.meta.url), "utf8"),
@@ -83,13 +86,16 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../app/companion-release.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/progress-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/bridge-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/local-navigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/live-tutor-workspace.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(workspace, /aria-live="polite"/);
   assert.match(workspace, /aria-pressed=\{focusMode\}/);
   assert.match(workspace, /End &amp; distil/);
   assert.match(workspace, /matchMedia\("\(max-width: 980px\)"\)/);
-  assert.match(setup, /sovereign_bridge_token/);
+  assert.match(setup, /readBridgeToken/);
   assert.match(setup, /Open Sovereign Companion/);
   assert.match(setup, /NEXT_PUBLIC_SOVEREIGN_COMPANION_DOWNLOAD_URL/);
   assert.match(setup, /Download for Windows/);
@@ -115,11 +121,22 @@ test("keeps live tutoring, companion setup, and inspectable ingestion in source"
   assert.match(bridge, /reviewAfterDays/);
   assert.match(bridge, /normalizeStudyMode/);
   assert.match(bridge, /materialVisualMatch/);
+  assert.match(bridge, /sessionTtlMs/);
+  assert.match(bridge, /codexTimeoutMs/);
+  assert.match(bridge, /\/v1\/companion\/pairing/);
+  assert.match(bridge, /preserveCorruptJson/);
+  assert.match(bridge, /removeRetainedMaterial/);
   assert.match(companionRelease, /public\.blob\.vercel-storage\.com/);
-  assert.match(companionRelease, /version:\s*"0\.1\.5"/);
+  assert.match(companionRelease, /version:\s*"0\.1\.6"/);
   assert.match(progressWorkspace, /Retained learning, not retained chat/i);
   assert.match(progressWorkspace, /currentStreak/);
   assert.match(progressWorkspace, /reviewsDue/);
+  assert.match(bridgeClient, /window\.localStorage/);
+  assert.match(bridgeClient, /fetchWithTimeout/);
+  assert.match(localNavigation, /inert=\{mobileClosed\}/);
+  assert.match(localNavigation, /event\.key === "Escape"/);
+  assert.match(liveTutor, /examAction/);
+  assert.doesNotMatch(liveTutor, /examTimerActive/);
   assert.match(companion, /contextIsolation:\s*true/);
   assert.match(companion, /ELECTRON_RUN_AS_NODE/);
   assert.match(preload, /contextBridge\.exposeInMainWorld/);

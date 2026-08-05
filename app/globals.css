@@ -1461,12 +1461,17 @@ button:disabled {
     padding: 20px 16px;
     position: fixed;
     transform: translateX(-105%);
-    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition:
+      transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 0s linear 220ms;
+    visibility: hidden;
     width: min(290px, 86vw);
   }
 
   .primary-nav.mobile-open {
     transform: translateX(0);
+    transition-delay: 0s;
+    visibility: visible;
   }
 
   .brand-lockup {
@@ -3819,6 +3824,11 @@ button:disabled {
   color: var(--stem-hover);
 }
 
+.study-mode-options button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .exam-question-clock {
   align-items: center;
   background: color-mix(in oklch, var(--evidence-soft) 50%, var(--surface));
@@ -5027,6 +5037,21 @@ button:disabled {
   }
 
   .study-mode-options button {
-    min-height: 42px;
+    min-height: 44px;
+  }
+
+  .brand-lockup,
+  .landing-brand,
+  .memory-copy > a,
+  .landing-footer .landing-brand {
+    min-height: 44px;
+  }
+
+  .bridge-nav-status strong,
+  .bridge-nav-status small,
+  .study-mode-control > div:first-child strong,
+  .study-mode-control > div:first-child span,
+  .study-mode-options button {
+    font-size: 11px;
   }
 }

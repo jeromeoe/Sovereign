@@ -13,10 +13,14 @@ import {
   Target,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  BRIDGE_URL,
+  clearBridgeToken,
+  fetchWithTimeout,
+  readBridgeToken,
+} from "./bridge-client";
 import { LocalNavigation } from "./local-navigation";
-
-const BRIDGE_URL = "http://127.0.0.1:4317";
 
 type RankedEvidence = { text: string; count: number };
 
@@ -54,9 +58,10 @@ export function LocalProgressWorkspace() {
   );
   const [message, setMessage] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const loadProgress = useCallback(async () => {
-    const token = window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
+    const token = readBridgeToken();
     if (!token) {
       setState("missing");
       return;
@@ -64,12 +69,13 @@ export function LocalProgressWorkspace() {
     setState("loading");
     setMessage("");
     try {
-      const response = await fetch(`${BRIDGE_URL}/v1/progress`, {
+      const response = await fetchWithTimeout(`${BRIDGE_URL}/v1/progress`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
-      });
+      }, 12_000);
       const body = await response.json();
       if (!response.ok) {
+        if (response.status === 401) clearBridgeToken();
         throw new Error(body.error ?? "Your local progress could not be read.");
       }
       setData(body);
@@ -91,6 +97,11 @@ export function LocalProgressWorkspace() {
     (course) => course.nextRetrieval.length || course.misconceptions.length,
   );
 
+  function closeMobileNavigation() {
+    menuButtonRef.current?.focus();
+    setMobileMenuOpen(false);
+  }
+
   return (
     <div className="workspace progress-workspace">
       <a className="skip-link" href="#progress-content">
@@ -100,15 +111,19 @@ export function LocalProgressWorkspace() {
         connected={state === "ready"}
         current="Progress"
         mobileOpen={mobileMenuOpen}
-        onClose={() => setMobileMenuOpen(false)}
+        onClose={closeMobileNavigation}
+        openerRef={menuButtonRef}
       />
 
       <header className="session-header progress-header">
         <div className="header-course">
           <button
+            aria-controls="primary-navigation"
+            aria-expanded={mobileMenuOpen}
             aria-label="Open navigation"
             className="menu-button icon-button"
             onClick={() => setMobileMenuOpen(true)}
+            ref={menuButtonRef}
             type="button"
           >
             <Menu size={20} />
@@ -295,7 +310,7 @@ export function LocalProgressWorkspace() {
       <div
         aria-hidden="true"
         className={`mobile-scrim ${mobileMenuOpen ? "visible" : ""}`}
-        onClick={() => setMobileMenuOpen(false)}
+        onClick={closeMobileNavigation}
       />
     </div>
   );

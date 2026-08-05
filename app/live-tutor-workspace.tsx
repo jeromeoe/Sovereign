@@ -31,9 +31,16 @@ import {
   useState,
 } from "react";
 import { SovereignMark } from "./brand-mark";
+import {
+  BRIDGE_URL,
+  clearBridgeToken,
+  fetchWithTimeout,
+  readBridgeToken,
+  readCourseId,
+  writeCourseId,
+} from "./bridge-client";
 import { LocalNavigation } from "./local-navigation";
 
-const BRIDGE_URL = "http://127.0.0.1:4317";
 const SESSION_SECONDS = 25 * 60;
 
 type Material = {
@@ -96,6 +103,7 @@ type EvidencePreview = {
 };
 
 type StudyMode = "explain" | "recall" | "revision" | "exam";
+type ExamPhase = "idle" | "generating" | "answering" | "grading" | "reviewing";
 
 const studyModes: Array<{
   id: StudyMode;
@@ -147,19 +155,23 @@ export function LiveTutorWorkspace() {
   const [distilling, setDistilling] = useState(false);
   const [distillation, setDistillation] = useState<Distillation | null>(null);
   const [studyMode, setStudyMode] = useState<StudyMode>("explain");
-  const [examTimerActive, setExamTimerActive] = useState(false);
+  const [examPhase, setExamPhase] = useState<ExamPhase>("idle");
   const [examRemainingSeconds, setExamRemainingSeconds] = useState(10 * 60);
   const [evidencePreview, setEvidencePreview] =
     useState<EvidencePreview | null>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const loadCourse = useCallback(async (savedToken: string, courseId: string) => {
     try {
-      const response = await fetch(`${BRIDGE_URL}/v1/courses`, {
+      const response = await fetchWithTimeout(`${BRIDGE_URL}/v1/courses`, {
         headers: { Authorization: `Bearer ${savedToken}` },
         cache: "no-store",
-      });
-      if (!response.ok) throw new Error("Bridge pairing has expired.");
+      }, 12_000);
+      if (!response.ok) {
+        if (response.status === 401) clearBridgeToken();
+        throw new Error("Bridge pairing has expired. Reconnect Sovereign once.");
+      }
       const data = await response.json();
       const match = data.courses?.find((item: Course) => item.id === courseId);
       if (!match) {
@@ -167,7 +179,7 @@ export function LiveTutorWorkspace() {
       }
       setCourse(match);
       setConnectionState("ready");
-      window.sessionStorage.setItem("sovereign_course_id", match.id);
+      writeCourseId(match.id);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -183,14 +195,13 @@ export function LiveTutorWorkspace() {
       if (window.matchMedia("(max-width: 980px)").matches) {
         setSourceOpen(false);
       }
-      const savedToken =
-        window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
+      const savedToken = readBridgeToken();
       const queryCourse = new URLSearchParams(window.location.search).get(
         "course",
       );
       const savedCourse =
         queryCourse ??
-        window.sessionStorage.getItem("sovereign_course_id") ??
+        readCourseId() ??
         "";
       setToken(savedToken);
       if (!savedToken || !savedCourse) {
@@ -203,20 +214,28 @@ export function LiveTutorWorkspace() {
   }, [loadCourse]);
 
   useEffect(() => {
-    if (distillation) return;
+    if (
+      distillation ||
+      connectionState !== "ready" ||
+      !course ||
+      !messages.length ||
+      remainingSeconds === 0
+    ) {
+      return;
+    }
     const interval = window.setInterval(() => {
       setRemainingSeconds((current) => Math.max(0, current - 1));
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [distillation]);
+  }, [connectionState, course, distillation, messages.length, remainingSeconds]);
 
   useEffect(() => {
-    if (!examTimerActive || examRemainingSeconds === 0) return;
+    if (examPhase !== "answering" || examRemainingSeconds === 0) return;
     const interval = window.setInterval(() => {
       setExamRemainingSeconds((current) => Math.max(0, current - 1));
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [examRemainingSeconds, examTimerActive]);
+  }, [examPhase, examRemainingSeconds]);
 
   async function submitAnswer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -231,11 +250,19 @@ export function LiveTutorWorkspace() {
     setAnswer("");
     setThinking(true);
     setError("");
-    const answeringExamQuestion = studyMode === "exam" && examTimerActive;
-    if (answeringExamQuestion) setExamTimerActive(false);
+    const examAction =
+      studyMode !== "exam"
+        ? undefined
+        : examPhase === "idle"
+          ? "question"
+          : examPhase === "answering"
+            ? "answer"
+            : "followup";
+    if (examAction === "question") setExamPhase("generating");
+    if (examAction === "answer") setExamPhase("grading");
 
     try {
-      const response = await fetch(`${BRIDGE_URL}/v1/chat`, {
+      const response = await fetchWithTimeout(`${BRIDGE_URL}/v1/chat`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -246,8 +273,9 @@ export function LiveTutorWorkspace() {
           sessionId,
           message: question,
           mode: studyMode,
+          examAction,
         }),
-      });
+      }, 195_000);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "The tutor could not respond.");
       setMessages((current) => [
@@ -261,11 +289,15 @@ export function LiveTutorWorkspace() {
         },
       ]);
       if (data.sources?.length) setSourceOpen(true);
-      if (studyMode === "exam" && !answeringExamQuestion) {
+      if (examAction === "question") {
         setExamRemainingSeconds(10 * 60);
-        setExamTimerActive(true);
+        setExamPhase("answering");
+      } else if (examAction === "answer") {
+        setExamPhase("reviewing");
       }
     } catch (chatError) {
+      if (examAction === "question") setExamPhase("idle");
+      if (examAction === "answer") setExamPhase("answering");
       setError(
         chatError instanceof Error ? chatError.message : "The tutor could not respond.",
       );
@@ -276,17 +308,17 @@ export function LiveTutorWorkspace() {
 
   function chooseStudyMode(mode: StudyMode) {
     setStudyMode(mode);
-    if (mode !== "exam") {
-      setExamTimerActive(false);
-      setExamRemainingSeconds(10 * 60);
-    }
-    setAnswer(
-      {
+    setExamPhase("idle");
+    setExamRemainingSeconds(10 * 60);
+    setAnswer((current) =>
+      current.trim()
+        ? current
+        : {
         explain: "Explain the most important mechanism in these slides from first principles.",
         recall: "Test my recall of the most foundational concept, one question at a time.",
         revision: "Use my retained weak points to choose what I should revise now.",
         exam: "Give me one exam-style question from this material. Do not show the solution yet.",
-      }[mode],
+          }[mode],
     );
     answerRef.current?.focus();
   }
@@ -296,6 +328,11 @@ export function LiveTutorWorkspace() {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
     }
+  }
+
+  function closeMobileNavigation() {
+    menuButtonRef.current?.focus();
+    setMobileMenuOpen(false);
   }
 
   async function endAndDistil() {
@@ -313,14 +350,14 @@ export function LiveTutorWorkspace() {
     setDistilling(true);
     setError("");
     try {
-      const response = await fetch(`${BRIDGE_URL}/v1/distil`, {
+      const response = await fetchWithTimeout(`${BRIDGE_URL}/v1/distil`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ sessionId }),
-      });
+      }, 195_000);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not distil the session.");
       setDistillation(data.evidence);
@@ -369,11 +406,11 @@ export function LiveTutorWorkspace() {
         const endpoint = latestVisual
           ? `${BRIDGE_URL}/v1/courses/${course.id}/materials/${latestVisual.materialId}/visuals/${latestVisual.visualIndex}`
           : `${BRIDGE_URL}/v1/courses/${course.id}/materials/${sourceMaterial?.id}/file`;
-        const response = await fetch(endpoint, {
+        const response = await fetchWithTimeout(endpoint, {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
           signal: controller.signal,
-        });
+        }, 30_000);
         if (!response.ok) throw new Error("Evidence preview is unavailable.");
         objectUrl = URL.createObjectURL(await response.blob());
         setEvidencePreview({
@@ -410,15 +447,19 @@ export function LiveTutorWorkspace() {
         connected={connectionState === "ready"}
         current="Today"
         mobileOpen={mobileMenuOpen}
-        onClose={() => setMobileMenuOpen(false)}
+        onClose={closeMobileNavigation}
+        openerRef={menuButtonRef}
       />
 
       <header className="session-header">
         <div className="header-course">
           <button
+            aria-controls="primary-navigation"
+            aria-expanded={mobileMenuOpen}
             aria-label="Open navigation"
             className="menu-button icon-button"
             onClick={() => setMobileMenuOpen(true)}
+            ref={menuButtonRef}
             type="button"
           >
             <Menu size={20} />
@@ -597,6 +638,7 @@ export function LiveTutorWorkspace() {
                   <button
                     aria-pressed={studyMode === id}
                     className={studyMode === id ? "selected" : ""}
+                    disabled={thinking}
                     key={id}
                     onClick={() => chooseStudyMode(id)}
                     type="button"
@@ -608,12 +650,11 @@ export function LiveTutorWorkspace() {
               </div>
             </section>
 
-            {studyMode === "exam" && examTimerActive && (
+            {studyMode === "exam" && examPhase === "answering" && (
               <section
                 className={`exam-question-clock ${
                   examRemainingSeconds === 0 ? "expired" : ""
                 }`}
-                aria-live="polite"
               >
                 <Clock aria-hidden="true" size={18} />
                 <div>
@@ -631,6 +672,11 @@ export function LiveTutorWorkspace() {
                 <time dateTime={`PT${examRemainingSeconds}S`}>
                   {formatClock(examRemainingSeconds)}
                 </time>
+                {examRemainingSeconds === 0 && (
+                  <span className="sr-only" role="status">
+                    Exam answer time is complete. Submit what you have.
+                  </span>
+                )}
               </section>
             )}
 
@@ -686,6 +732,9 @@ export function LiveTutorWorkspace() {
 
             {remainingSeconds === 0 && (
               <section className="live-time-complete" aria-labelledby="focus-complete-title">
+                <span className="sr-only" role="status">
+                  Your focus block is complete.
+                </span>
                 <Clock aria-hidden="true" size={20} />
                 <div>
                   <strong id="focus-complete-title">Your focus block is complete.</strong>
@@ -720,7 +769,7 @@ export function LiveTutorWorkspace() {
                 onChange={(event) => setAnswer(event.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  studyMode === "exam" && examTimerActive
+                  studyMode === "exam" && examPhase === "answering"
                     ? "Write your exam answer…"
                     : "Ask about a slide, concept, or past mistake…"
                 }
@@ -879,7 +928,7 @@ export function LiveTutorWorkspace() {
       <div
         aria-hidden="true"
         className={`mobile-scrim ${mobileMenuOpen ? "visible" : ""}`}
-        onClick={() => setMobileMenuOpen(false)}
+        onClick={closeMobileNavigation}
       />
     </div>
   );

@@ -30,12 +30,20 @@ import {
   FormEvent,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { SovereignMark } from "./brand-mark";
+import {
+  BRIDGE_URL,
+  clearBridgeToken,
+  fetchWithTimeout,
+  readBridgeToken,
+  writeBridgeToken,
+  writeCourseId,
+} from "./bridge-client";
 import { COMPANION_RELEASE } from "./companion-release";
 
-const BRIDGE_URL = "http://127.0.0.1:4317";
 const START_COMMAND = "npm run bridge";
 const COMPANION_PROTOCOL_URL = "sovereign://open";
 const COMPANION_DOWNLOAD_URL =
@@ -109,25 +117,28 @@ export function BridgeSetup() {
   const [installStage, setInstallStage] = useState<InstallStage>("idle");
   const [handoffCode, setHandoffCode] = useState("");
   const [error, setError] = useState("");
+  const bridgeCheckInFlight = useRef(false);
 
   const checkBridge = useCallback(
     async (existingToken = "", silent = false) => {
+      if (bridgeCheckInFlight.current) return;
+      bridgeCheckInFlight.current = true;
       if (!silent) {
         setBridgeState("checking");
         setError("");
       }
 
       try {
-        const health = await fetch(`${BRIDGE_URL}/v1/health`, {
+        const health = await fetchWithTimeout(`${BRIDGE_URL}/v1/health`, {
           cache: "no-store",
-        });
+        }, 4_000);
         if (!health.ok) throw new Error("Sovereign is unavailable.");
 
         if (existingToken) {
-          const list = await fetch(`${BRIDGE_URL}/v1/courses`, {
+          const list = await fetchWithTimeout(`${BRIDGE_URL}/v1/courses`, {
             headers: { Authorization: `Bearer ${existingToken}` },
             cache: "no-store",
-          });
+          }, 8_000);
           if (list.ok) {
             const data = await list.json();
             setCourses(data.courses ?? []);
@@ -135,11 +146,17 @@ export function BridgeSetup() {
             setBridgeState("connected");
             return;
           }
+          if (list.status === 401) {
+            clearBridgeToken();
+            setToken("");
+          }
         }
 
         setBridgeState("pairing");
       } catch {
         setBridgeState("offline");
+      } finally {
+        bridgeCheckInFlight.current = false;
       }
     },
     [],
@@ -148,19 +165,20 @@ export function BridgeSetup() {
   const connectWithPairingCode = useCallback(async (code: string) => {
     setError("");
     try {
-      const response = await fetch(`${BRIDGE_URL}/v1/pair`, {
+      const response = await fetchWithTimeout(`${BRIDGE_URL}/v1/pair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
-      });
+      }, 8_000);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "That code did not work.");
 
       setToken(data.token);
-      window.sessionStorage.setItem("sovereign_bridge_token", data.token);
-      const list = await fetch(`${BRIDGE_URL}/v1/courses`, {
+      writeBridgeToken(data.token);
+      const list = await fetchWithTimeout(`${BRIDGE_URL}/v1/courses`, {
         headers: { Authorization: `Bearer ${data.token}` },
-      });
+      }, 8_000);
+      if (!list.ok) throw new Error("The local course library could not be read.");
       const coursesData = await list.json();
       setCourses(coursesData.courses ?? []);
       setActiveCourse(coursesData.courses?.[0] ?? null);
@@ -175,8 +193,7 @@ export function BridgeSetup() {
   }, []);
 
   useEffect(() => {
-    const savedToken =
-      window.sessionStorage.getItem("sovereign_bridge_token") ?? "";
+    const savedToken = readBridgeToken();
     const fragment = new URLSearchParams(window.location.hash.slice(1));
     const incomingCode = fragment.get("pair")?.trim().toUpperCase() ?? "";
     const bootstrap = window.setTimeout(() => {
@@ -320,6 +337,7 @@ export function BridgeSetup() {
         `${BRIDGE_URL}/v1/courses/${courseId}/materials`,
       );
       request.setRequestHeader("Authorization", `Bearer ${token}`);
+      request.timeout = 5 * 60 * 1000;
       request.upload.addEventListener("loadstart", () => {
         updateUploadItem(queueId, { status: "uploading", progress: 4 });
       });
@@ -351,6 +369,13 @@ export function BridgeSetup() {
       });
       request.addEventListener("error", () => {
         reject(new Error("The local study connection was interrupted."));
+      });
+      request.addEventListener("timeout", () => {
+        reject(
+          new Error(
+            "This source took too long to process. Try a smaller deck or export it as PDF.",
+          ),
+        );
       });
       request.send(form);
     });
@@ -429,18 +454,24 @@ export function BridgeSetup() {
 
   function startTutor() {
     if (!activeCourse) return;
-    window.sessionStorage.setItem("sovereign_course_id", activeCourse.id);
+    writeCourseId(activeCourse.id);
     router.push(`/tutor?course=${activeCourse.id}`);
   }
 
-  function bridgeFetch(pathname: string, init?: RequestInit) {
-    return fetch(`${BRIDGE_URL}${pathname}`, {
+  async function bridgeFetch(pathname: string, init?: RequestInit) {
+    const response = await fetchWithTimeout(`${BRIDGE_URL}${pathname}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${token}`,
         ...(init?.headers ?? {}),
       },
-    });
+    }, 30_000);
+    if (response.status === 401) {
+      clearBridgeToken();
+      setToken("");
+      setBridgeState("pairing");
+    }
+    return response;
   }
 
   return (
@@ -487,7 +518,7 @@ export function BridgeSetup() {
         </Link>
       </header>
 
-      <section className="setup-main" aria-live="polite">
+      <section className="setup-main">
         <div className="setup-intro">
           <Link className="setup-back" href="/">
             <ArrowLeft aria-hidden="true" size={16} />

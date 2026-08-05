@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
   "channel": "alpha",
-  "version": "0.1.5",
-  "publishedAt": "2026-08-04T15:26:25.805Z",
+  "version": "0.1.6",
+  "publishedAt": "2026-08-05T03:13:23.302Z",
   "platform": "win32-x64",
   "installer": {
-    "url": "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.5/Sovereign-Companion-Setup-0.1.5.exe",
-    "bytes": 212923400,
-    "sha256": "FE148D6735F1393BEB891B5307875331FBBC02CB4F0C2C68C700712F1FA0C2C1",
+    "url": "https://5qxl1upvecuha2vd.public.blob.vercel-storage.com/sovereign-companion/v0.1.6/Sovereign-Companion-Setup-0.1.6.exe",
+    "bytes": 212925457,
+    "sha256": "ACC7E19D0ECC378A8C5498AB811512F63FEAB10FA04E9EA19F035C277BFDBFFC",
     "signature": "unsigned"
   },
   "notes": [
-    "Adds Explain, Recall, Revision, and Exam tutoring modes.",
-    "Starts a dedicated ten-minute answer clock when an exam question is generated.",
-    "Schedules the next spaced review locally from demonstrated understanding."
+    "Recovers an already-running Companion during onboarding without asking for terminal commands.",
+    "Adds safe time limits and bounded output handling for Codex operations.",
+    "Protects local study files during failed uploads and detects damaged library data before writing."
   ]
 }

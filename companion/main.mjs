@@ -39,6 +39,7 @@ const statusFile = process.env.SOVEREIGN_COMPANION_STATUS_FILE ?? "";
 const releaseManifestUrl =
   process.env.SOVEREIGN_RELEASE_MANIFEST_URL ?? RELEASE_MANIFEST_URL;
 const updateCheckIntervalMs = 6 * 60 * 60 * 1000;
+const maximumCommandOutputBytes = 1024 * 1024;
 
 let mainWindow = null;
 let tray = null;
@@ -279,10 +280,20 @@ async function openSovereign() {
 async function startBridge() {
   const existing = await detectExistingBridge();
   if (existing) {
+    if (!existing.pairingCode) {
+      setBridgeState({
+        status: "error",
+        pairingCode: "",
+        library: existing.library || libraryPath,
+        message:
+          "An older Sovereign connection is already using this computer. Quit it from the tray, then choose Restart connection.",
+      });
+      return;
+    }
     setBridgeState({
       status: "ready",
-      pairingCode: "",
-      library: libraryPath,
+      pairingCode: existing.pairingCode,
+      library: existing.library || libraryPath,
       message: "Sovereign is already running on this computer.",
     });
     return;
@@ -359,12 +370,28 @@ async function startBridge() {
 
 async function detectExistingBridge() {
   try {
-    const response = await fetch("http://127.0.0.1:4317/v1/health", {
+    const health = await fetch("http://127.0.0.1:4317/v1/health", {
       signal: AbortSignal.timeout(800),
     });
-    return response.ok;
+    if (!health.ok) return null;
+
+    const pairing = await fetch(
+      "http://127.0.0.1:4317/v1/companion/pairing",
+      {
+        headers: { "X-Sovereign-Bridge": "companion" },
+        signal: AbortSignal.timeout(800),
+      },
+    );
+    if (!pairing.ok) return { pairingCode: "", library: libraryPath };
+    const body = await pairing.json();
+    return {
+      pairingCode: /^[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(body.pairingCode ?? "")
+        ? body.pairingCode
+        : "",
+      library: body.library || libraryPath,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -385,7 +412,9 @@ async function checkCodexLogin() {
     status: "checking",
     message: "Checking your ChatGPT connection…",
   });
-  const result = await runCodexCommand(["login", "status"]);
+  const result = await runCodexCommand(["login", "status"], {
+    timeoutMs: 15_000,
+  });
   if (result.code === 0 && /logged in/i.test(`${result.stdout}\n${result.stderr}`)) {
     setCodexState({
       status: "connected",
@@ -404,7 +433,7 @@ async function signInToCodex() {
     status: "signing-in",
     message: "Finish signing in in the browser window that just opened.",
   });
-  const result = await runCodexCommand(["login"]);
+  const result = await runCodexCommand(["login"], { timeoutMs: 5 * 60 * 1000 });
   if (result.code === 0) {
     await checkCodexLogin();
   } else {
@@ -417,7 +446,7 @@ async function signInToCodex() {
   }
 }
 
-function runCodexCommand(args) {
+function runCodexCommand(args, { timeoutMs = 30_000 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [codexCli, ...args], {
       cwd: runtimeDirectory,
@@ -427,18 +456,55 @@ function runCodexCommand(args) {
     });
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let settled = false;
+    let forcedError = "";
+    const timeout = setTimeout(() => {
+      forcedError = "Codex did not finish in time. You can safely try again.";
+      child.kill();
+    }, timeoutMs);
+    timeout.unref?.();
+
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    }
+
+    function appendOutput(current, chunk, stream) {
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      const nextBytes =
+        stream === "stdout"
+          ? (stdoutBytes += chunkBytes)
+          : (stderrBytes += chunkBytes);
+      if (nextBytes > maximumCommandOutputBytes) {
+        forcedError = "Codex returned an unexpectedly large response.";
+        child.kill();
+        return current;
+      }
+      return current + chunk;
+    }
+
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
-      stdout += chunk;
+      stdout = appendOutput(stdout, chunk, "stdout");
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk;
+      stderr = appendOutput(stderr, chunk, "stderr");
     });
     child.on("error", (error) =>
-      resolve({ code: 1, stdout, stderr: error.message }),
+      finish({ code: 1, stdout, stderr: error.message }),
     );
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.on("close", (code) =>
+      finish({
+        code: forcedError ? 1 : code,
+        stdout,
+        stderr: forcedError || stderr,
+      }),
+    );
   });
 }
 

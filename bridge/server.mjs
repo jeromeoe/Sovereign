@@ -1,7 +1,14 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,8 +31,22 @@ const dataRoot =
 const manifestPath = path.join(dataRoot, "manifest.json");
 const port = Number(process.env.SOVEREIGN_BRIDGE_PORT ?? 4317);
 const pairingCode = `${randomToken(3)}-${randomToken(3)}`;
+const accessTokenTtlMs = 12 * 60 * 60 * 1000;
+const sessionTtlMs = Math.max(
+  60_000,
+  Number(process.env.SOVEREIGN_SESSION_TTL_MS ?? 30 * 60 * 1000),
+);
+const sessionMaximumLifetimeMs = 4 * 60 * 60 * 1000;
+const codexTimeoutMs = Math.max(
+  30_000,
+  Number(process.env.SOVEREIGN_CODEX_TIMEOUT_MS ?? 3 * 60 * 1000),
+);
+const maximumSessions = 100;
+const maximumCodexOutputBytes = 4 * 1024 * 1024;
+const maximumUploadBytes = 60 * 1024 * 1024;
 const accessTokens = new Map();
 const sessions = new Map();
+const backedUpCorruptFiles = new Map();
 let writeQueue = Promise.resolve();
 
 const defaultOrigins = [
@@ -43,6 +64,9 @@ const allowedOrigins = new Set([
 ]);
 
 await ensureLibrary();
+
+const transientStateSweep = setInterval(sweepTransientState, 60_000);
+transientStateSweep.unref?.();
 
 const server = createServer(async (incoming, outgoing) => {
   const origin = incoming.headers.origin;
@@ -77,6 +101,20 @@ const server = createServer(async (incoming, outgoing) => {
       );
     }
 
+    if (
+      incoming.method === "GET" &&
+      url.pathname === "/v1/companion/pairing" &&
+      !origin &&
+      incoming.headers["x-sovereign-bridge"] === "companion"
+    ) {
+      return sendJson(
+        outgoing,
+        200,
+        { pairingCode, library: dataRoot },
+        origin,
+      );
+    }
+
     if (incoming.method === "POST" && url.pathname === "/v1/pair") {
       const body = await readJson(incoming);
       if (normalizePairingCode(body.code) !== pairingCode) {
@@ -88,7 +126,7 @@ const server = createServer(async (incoming, outgoing) => {
         );
       }
       const token = randomBytes(24).toString("base64url");
-      accessTokens.set(token, Date.now() + 12 * 60 * 60 * 1000);
+      accessTokens.set(token, Date.now() + accessTokenTtlMs);
       return sendJson(outgoing, 200, { token, expiresIn: 43200 }, origin);
     }
 
@@ -140,7 +178,7 @@ const server = createServer(async (incoming, outgoing) => {
     );
     if (incoming.method === "POST" && materialMatch) {
       const contentLength = Number(incoming.headers["content-length"] ?? 0);
-      if (contentLength > 60 * 1024 * 1024) {
+      if (contentLength > maximumUploadBytes) {
         return sendJson(
           outgoing,
           413,
@@ -167,16 +205,31 @@ const server = createServer(async (incoming, outgoing) => {
       if (!uploads.length) {
         return sendJson(outgoing, 400, { error: "Choose at least one file." }, origin);
       }
+      if (uploads.some((upload) => upload.size > maximumUploadBytes)) {
+        return sendJson(
+          outgoing,
+          413,
+          { error: "Keep each source below 60 MB." },
+          origin,
+        );
+      }
 
       const materials = [];
-      for (const upload of uploads) {
-        const material = await retainMaterial(course, upload);
-        materials.push(material);
+      try {
+        for (const upload of uploads) {
+          const material = await retainMaterial(course, upload);
+          materials.push(material);
+        }
+        await updateManifest((current) => {
+          const target = current.courses.find((item) => item.id === courseId);
+          target.materials.push(...materials);
+        });
+      } catch (error) {
+        await Promise.allSettled(
+          materials.map((material) => removeRetainedMaterial(course.id, material)),
+        );
+        throw error;
       }
-      await updateManifest((current) => {
-        const target = current.courses.find((item) => item.id === courseId);
-        target.materials.push(...materials);
-      });
       return sendJson(outgoing, 201, { materials }, origin);
     }
 
@@ -276,6 +329,7 @@ const server = createServer(async (incoming, outgoing) => {
       const question = cleanText(body.message, 6000);
       const sessionId = cleanText(body.sessionId, 80) || randomUUID();
       const mode = normalizeStudyMode(body.mode);
+      const examAction = normalizeExamAction(body.examAction);
       if (!courseId || !question) {
         return sendJson(
           outgoing,
@@ -291,42 +345,87 @@ const server = createServer(async (incoming, outgoing) => {
         return sendJson(outgoing, 404, { error: "Course not found." }, origin);
       }
 
-      const evidence = await retrieveEvidence(course, question);
-      const learningProfile = await readLearningProfile(course.id);
-      const learningContext = selectLearningContext(learningProfile, question);
-      const session = sessions.get(sessionId) ?? {
+      sweepTransientState();
+      const existingSession = sessions.get(sessionId);
+      if (existingSession?.pending) {
+        return sendJson(
+          outgoing,
+          409,
+          { error: "Sovereign is still completing the previous turn." },
+          origin,
+        );
+      }
+      if (existingSession && existingSession.courseId !== courseId) {
+        return sendJson(
+          outgoing,
+          409,
+          { error: "Start a new tutoring session before changing courses." },
+          origin,
+        );
+      }
+
+      if (!existingSession && !ensureSessionCapacity()) {
+        return sendJson(
+          outgoing,
+          503,
+          { error: "Sovereign is handling too many active sessions. Try again shortly." },
+          origin,
+        );
+      }
+      const session = existingSession ?? {
         courseId,
         startedAt: new Date().toISOString(),
         messages: [],
         mode,
       };
       session.mode = mode;
-      session.messages.push({ role: "student", text: question });
-      const prompt = buildTutorPrompt(
-        course,
-        evidence,
-        session.messages,
-        question,
-        learningContext,
-        mode,
-      );
-      const result = await runCodex(prompt, courseDirectory(course.id), evidence.images);
-      session.messages.push({ role: "tutor", text: result.response });
+      session.pending = true;
       session.lastActivityAt = new Date().toISOString();
+      const rollbackIndex = session.messages.length;
+      session.messages.push({ role: "student", text: question });
       sessions.set(sessionId, session);
 
-      return sendJson(
-        outgoing,
-        200,
-        {
-          sessionId,
-          response: result.response,
-          sources: evidence.sources,
-          visuals: evidence.visuals,
-          usage: result.usage,
-        },
-        origin,
-      );
+      try {
+        const evidence = await retrieveEvidence(course, question);
+        const learningProfile = await readLearningProfile(course.id);
+        const learningContext = selectLearningContext(learningProfile, question);
+        const prompt = buildTutorPrompt(
+          course,
+          evidence,
+          session.messages,
+          question,
+          learningContext,
+          mode,
+          examAction,
+        );
+        const result = await runCodex(
+          prompt,
+          courseDirectory(course.id),
+          evidence.images,
+        );
+        session.messages.push({ role: "tutor", text: result.response });
+        session.lastActivityAt = new Date().toISOString();
+        session.pending = false;
+
+        return sendJson(
+          outgoing,
+          200,
+          {
+            sessionId,
+            response: result.response,
+            sources: evidence.sources,
+            visuals: evidence.visuals,
+            usage: result.usage,
+          },
+          origin,
+        );
+      } catch (error) {
+        session.messages.splice(rollbackIndex);
+        session.pending = false;
+        session.lastActivityAt = new Date().toISOString();
+        if (!session.messages.length) sessions.delete(sessionId);
+        throw error;
+      }
     }
 
     if (incoming.method === "POST" && url.pathname === "/v1/distil") {
@@ -341,48 +440,73 @@ const server = createServer(async (incoming, outgoing) => {
           origin,
         );
       }
-      const manifest = await readManifest();
-      const course = manifest.courses.find((item) => item.id === session.courseId);
-      const prompt = buildDistillationPrompt(course, session);
-      const result = await runCodex(prompt, courseDirectory(course.id), []);
-      const evidence = parseDistillation(result.response);
-      const profilePath = path.join(courseDirectory(course.id), "learning-profile.json");
-      const profile = await readJsonFile(profilePath, { entries: [] });
-      const durationSeconds = Math.max(
-        1,
-        Math.min(
-          4 * 60 * 60,
-          Math.round((Date.now() - Date.parse(session.startedAt)) / 1000),
-        ),
-      );
-      const reviewDueAt = new Date(
-        Date.now() + evidence.reviewAfterDays * 86_400_000,
-      ).toISOString();
-      profile.entries.push({
-        id: randomUUID(),
-        sessionStartedAt: session.startedAt,
-        distilledAt: new Date().toISOString(),
-        durationSeconds,
-        messageCount: session.messages.length,
-        reviewDueAt,
-        ...evidence,
-      });
-      await atomicWrite(profilePath, JSON.stringify(profile, null, 2));
-      sessions.delete(sessionId);
-      return sendJson(
-        outgoing,
-        200,
-        {
-          evidence: {
-            ...evidence,
-            durationSeconds,
-            messageCount: session.messages.length,
-            reviewDueAt,
+      if (session.pending) {
+        return sendJson(
+          outgoing,
+          409,
+          { error: "Wait for the current tutor response before ending the session." },
+          origin,
+        );
+      }
+      session.pending = true;
+      session.lastActivityAt = new Date().toISOString();
+      try {
+        const manifest = await readManifest();
+        const course = manifest.courses.find((item) => item.id === session.courseId);
+        if (!course) {
+          sessions.delete(sessionId);
+          return sendJson(
+            outgoing,
+            404,
+            { error: "This course no longer exists. Start a new tutoring session." },
+            origin,
+          );
+        }
+        const prompt = buildDistillationPrompt(course, session);
+        const result = await runCodex(prompt, courseDirectory(course.id), []);
+        const evidence = parseDistillation(result.response);
+        const profilePath = path.join(courseDirectory(course.id), "learning-profile.json");
+        const profile = await readJsonFile(profilePath, { entries: [] });
+        const durationSeconds = Math.max(
+          1,
+          Math.min(
+            4 * 60 * 60,
+            Math.round((Date.now() - Date.parse(session.startedAt)) / 1000),
+          ),
+        );
+        const reviewDueAt = new Date(
+          Date.now() + evidence.reviewAfterDays * 86_400_000,
+        ).toISOString();
+        profile.entries.push({
+          id: randomUUID(),
+          sessionStartedAt: session.startedAt,
+          distilledAt: new Date().toISOString(),
+          durationSeconds,
+          messageCount: session.messages.length,
+          reviewDueAt,
+          ...evidence,
+        });
+        await atomicWrite(profilePath, JSON.stringify(profile, null, 2));
+        sessions.delete(sessionId);
+        return sendJson(
+          outgoing,
+          200,
+          {
+            evidence: {
+              ...evidence,
+              durationSeconds,
+              messageCount: session.messages.length,
+              reviewDueAt,
+            },
+            transcriptDeleted: true,
           },
-          transcriptDeleted: true,
-        },
-        origin,
-      );
+          origin,
+        );
+      } catch (error) {
+        session.pending = false;
+        session.lastActivityAt = new Date().toISOString();
+        throw error;
+      }
     }
 
     return sendJson(outgoing, 404, { error: "Route not found." }, origin);
@@ -432,6 +556,50 @@ function normalizeStudyMode(value) {
   return ["explain", "recall", "revision", "exam"].includes(mode)
     ? mode
     : "explain";
+}
+
+function normalizeExamAction(value) {
+  const action = cleanText(value, 20).toLowerCase();
+  return ["question", "answer", "followup"].includes(action)
+    ? action
+    : "followup";
+}
+
+function sweepTransientState() {
+  const now = Date.now();
+  for (const [token, expiry] of accessTokens) {
+    if (expiry <= now) accessTokens.delete(token);
+  }
+  for (const [sessionId, session] of sessions) {
+    const lastActivity = Date.parse(
+      session.lastActivityAt ?? session.startedAt ?? "",
+    );
+    const startedAt = Date.parse(session.startedAt ?? "");
+    if (
+      !session.pending &&
+      (!lastActivity ||
+        now - lastActivity >= sessionTtlMs ||
+        !startedAt ||
+        now - startedAt >= sessionMaximumLifetimeMs)
+    ) {
+      sessions.delete(sessionId);
+    }
+  }
+}
+
+function ensureSessionCapacity() {
+  sweepTransientState();
+  if (sessions.size < maximumSessions) return true;
+  const oldest = [...sessions.entries()]
+    .filter(([, session]) => !session.pending)
+    .sort(
+      ([, left], [, right]) =>
+        Date.parse(left.lastActivityAt ?? left.startedAt ?? "") -
+        Date.parse(right.lastActivityAt ?? right.startedAt ?? ""),
+    )[0];
+  if (!oldest) return false;
+  sessions.delete(oldest[0]);
+  return true;
 }
 
 function applyCors(response, origin) {
@@ -484,7 +652,8 @@ async function ensureLibrary() {
   await mkdir(dataRoot, { recursive: true });
   try {
     await readFile(manifestPath, "utf8");
-  } catch {
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
     await atomicWrite(manifestPath, JSON.stringify({ courses: [] }, null, 2));
   }
 }
@@ -509,7 +678,7 @@ async function readLearningProfile(courseId) {
 }
 
 async function buildProgressSummary(courses) {
-  const summaries = await Promise.all(
+  const records = await Promise.all(
     courses.map(async (course) => {
       const profile = await readLearningProfile(course.id);
       const entries = Array.isArray(profile.entries) ? profile.entries : [];
@@ -527,27 +696,27 @@ async function buildProgressSummary(courses) {
         reviewDueAt && Date.parse(reviewDueAt) <= Date.now(),
       );
       return {
-        id: course.id,
-        code: course.code,
-        title: course.title,
-        materialCount: course.materials.length,
-        sessions: entries.length,
-        durationSeconds,
-        confidence: Math.max(0, Math.min(100, 50 + confidenceDelta)),
-        lastStudiedAt: latestEntry?.distilledAt ?? "",
-        reviewDueAt,
-        reviewDue,
-        concepts: rankedEvidence(entries, "conceptsStudied", 6),
-        misconceptions: rankedEvidence(entries, "misconceptions", 6),
-        nextRetrieval: rankedEvidence(entries.slice(-6), "nextRetrieval", 5),
+        entries,
+        summary: {
+          id: course.id,
+          code: course.code,
+          title: course.title,
+          materialCount: course.materials.length,
+          sessions: entries.length,
+          durationSeconds,
+          confidence: Math.max(0, Math.min(100, 50 + confidenceDelta)),
+          lastStudiedAt: latestEntry?.distilledAt ?? "",
+          reviewDueAt,
+          reviewDue,
+          concepts: rankedEvidence(entries, "conceptsStudied", 6),
+          misconceptions: rankedEvidence(entries, "misconceptions", 6),
+          nextRetrieval: rankedEvidence(entries.slice(-6), "nextRetrieval", 5),
+        },
       };
     }),
   );
-  const allEntries = [];
-  for (const course of courses) {
-    const profile = await readLearningProfile(course.id);
-    allEntries.push(...(Array.isArray(profile.entries) ? profile.entries : []));
-  }
+  const summaries = records.map((record) => record.summary);
+  const allEntries = records.flatMap((record) => record.entries);
   return {
     totals: {
       sessions: summaries.reduce((total, item) => total + item.sessions, 0),
@@ -594,16 +763,14 @@ function currentStudyStreak(entries) {
   )].sort().reverse();
   if (!days.length) return 0;
 
-  const today = startOfLocalDay(new Date());
-  const latest = startOfLocalDay(new Date(`${days[0]}T12:00:00`));
-  const elapsedDays = Math.round((today - latest) / 86_400_000);
+  const today = dayNumber(dateKey(new Date()));
+  const latest = dayNumber(days[0]);
+  const elapsedDays = today - latest;
   if (elapsedDays > 1) return 0;
 
   let streak = 1;
   for (let index = 1; index < days.length; index += 1) {
-    const previous = startOfLocalDay(new Date(`${days[index - 1]}T12:00:00`));
-    const current = startOfLocalDay(new Date(`${days[index]}T12:00:00`));
-    if (Math.round((previous - current) / 86_400_000) !== 1) break;
+    if (dayNumber(days[index - 1]) - dayNumber(days[index]) !== 1) break;
     streak += 1;
   }
   return streak;
@@ -618,8 +785,9 @@ function dateKey(value) {
   return `${year}-${month}-${day}`;
 }
 
-function startOfLocalDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function dayNumber(key) {
+  const [year, month, day] = key.split("-").map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
 }
 
 async function updateManifest(mutator) {
@@ -648,11 +816,40 @@ async function atomicWrite(destination, contents) {
 }
 
 async function readJsonFile(filePath, fallback) {
+  let source;
   try {
-    return JSON.parse(await readFile(filePath, "utf8"));
-  } catch {
+    source = await readFile(filePath, "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
     return structuredClone(fallback);
   }
+
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    const backupPath = await preserveCorruptJson(filePath);
+    throw new Error(
+      `Sovereign found a damaged local library file. Your original was preserved at ${backupPath}.`,
+      { cause: error },
+    );
+  }
+}
+
+async function preserveCorruptJson(filePath) {
+  const existing = backedUpCorruptFiles.get(filePath);
+  if (existing) return existing;
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = `${filePath}.corrupt-${timestamp}`;
+  try {
+    await copyFile(filePath, backupPath);
+  } catch (error) {
+    throw new Error(
+      `Sovereign found a damaged local library file at ${filePath}, but could not create a safety copy. No data was changed.`,
+      { cause: error },
+    );
+  }
+  backedUpCorruptFiles.set(filePath, backupPath);
+  return backupPath;
 }
 
 function safeFilename(filename) {
@@ -689,40 +886,59 @@ async function retainMaterial(course, upload) {
 
   const storedName = `${id}-${originalName}`;
   const destination = path.join(courseDirectory(course.id), storedName);
-  const buffer = Buffer.from(await upload.arrayBuffer());
-  await mkdir(courseIndexDirectory(course.id), { recursive: true });
-  await writeFile(destination, buffer);
+  const material = { id, originalName, storedName };
 
-  const extracted = await extractMaterial(
-    buffer,
-    extension,
-    originalName,
-    destination,
-    { courseId: course.id, materialId: id },
-  );
-  await atomicWrite(
-    path.join(courseIndexDirectory(course.id), `${id}.json`),
-    JSON.stringify(extracted, null, 2),
-  );
+  try {
+    const buffer = Buffer.from(await upload.arrayBuffer());
+    await mkdir(courseIndexDirectory(course.id), { recursive: true });
+    await writeFile(destination, buffer);
 
-  return {
-    id,
-    originalName,
-    storedName,
-    contentType: upload.type || "application/octet-stream",
-    size: buffer.length,
-    uploadedAt: new Date().toISOString(),
-    pages: extracted.pages,
-    chunks: extracted.chunks.length,
-    kind: extracted.kind,
-    extractedCharacters: extracted.chunks.reduce(
-      (total, chunk) => total + chunk.text.length,
-      0,
-    ),
-    visuals: extracted.images.length,
-    warnings: extracted.warnings ?? [],
-    preview: extracted.slides?.find((slide) => slide.text)?.text?.slice(0, 240) ?? "",
-  };
+    const extracted = await extractMaterial(
+      buffer,
+      extension,
+      originalName,
+      destination,
+      { courseId: course.id, materialId: id },
+    );
+    await atomicWrite(
+      path.join(courseIndexDirectory(course.id), `${id}.json`),
+      JSON.stringify(extracted, null, 2),
+    );
+
+    return {
+      ...material,
+      contentType: upload.type || "application/octet-stream",
+      size: buffer.length,
+      uploadedAt: new Date().toISOString(),
+      pages: extracted.pages,
+      chunks: extracted.chunks.length,
+      kind: extracted.kind,
+      extractedCharacters: extracted.chunks.reduce(
+        (total, chunk) => total + chunk.text.length,
+        0,
+      ),
+      visuals: extracted.images.length,
+      warnings: extracted.warnings ?? [],
+      preview:
+        extracted.slides?.find((slide) => slide.text)?.text?.slice(0, 240) ?? "",
+    };
+  } catch (error) {
+    await removeRetainedMaterial(course.id, material);
+    throw error;
+  }
+}
+
+async function removeRetainedMaterial(courseId, material) {
+  await Promise.allSettled([
+    rm(path.join(courseDirectory(courseId), material.storedName), { force: true }),
+    rm(path.join(courseIndexDirectory(courseId), `${material.id}.json`), {
+      force: true,
+    }),
+    rm(path.join(courseDirectory(courseId), "visuals", material.id), {
+      force: true,
+      recursive: true,
+    }),
+  ]);
 }
 
 async function extractMaterial(
@@ -743,6 +959,7 @@ async function extractMaterial(
     const warnings = [];
     let emptyPages = 0;
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      if (pageNumber > 1) await yieldToEventLoop();
       const page = await document.getPage(pageNumber);
       const content = await page.getTextContent();
       const text = content.items
@@ -785,6 +1002,7 @@ async function extractMaterial(
     const images = [];
     let emptySlides = 0;
     for (const slideFile of slideFiles) {
+      if (slides.length) await yieldToEventLoop();
       const xml = await zip.file(slideFile).async("string");
       const text = [...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
         .map((match) => decodeXml(match[1]))
@@ -844,6 +1062,10 @@ async function extractMaterial(
     slides: [{ page: 1, slide: 1, text: text.replace(/\s+/g, " ").trim() }],
     warnings: [],
   };
+}
+
+function yieldToEventLoop() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 async function extractPowerPointVisuals(
@@ -1109,6 +1331,7 @@ function buildTutorPrompt(
   currentQuestion,
   learningContext,
   mode,
+  examAction,
 ) {
   const excerpts = evidence.chunks
     .map(
@@ -1128,6 +1351,16 @@ Misconceptions: ${entry.misconceptions.join("; ") || "none recorded"}
 Next retrieval: ${entry.nextRetrieval.join("; ") || "none recorded"}`,
     )
     .join("\n\n");
+  const examInstruction =
+    {
+      question:
+        "Provide one self-contained exam-style question with marks or constraints and no solution. Do not grade or explain yet.",
+      answer:
+        "The student has submitted their timed answer. Grade it precisely, identify lost marks, and show a concise model approach. Do not start another question.",
+      followup:
+        "Answer the student's follow-up about the completed exam question. Clarify the marking or mechanism without starting another timed question.",
+    }[examAction] ??
+    "Answer the student's exam-related follow-up without starting another timed question.";
   const modeInstruction =
     {
       explain:
@@ -1136,8 +1369,7 @@ Next retrieval: ${entry.nextRetrieval.join("; ") || "none recorded"}`,
         "Use active recall. Ask one focused question at a time, wait for an attempt before revealing the answer, then correct the smallest decisive gap.",
       revision:
         "Prioritize misconceptions and due retrieval targets from past learning evidence. Be concise, interleave related ideas, and test the weakest mechanism first.",
-      exam:
-        "Simulate exam conditions. When asked for a question, provide one self-contained exam-style question with marks or constraints and no solution. After the student answers, grade it precisely, identify lost marks, and show a model approach.",
+      exam: examInstruction,
     }[mode] ?? "Teach clearly from the retained evidence.";
 
   return `You are Sovereign, an exacting but humane university tutor for ${course.code}: ${course.title}.
@@ -1251,21 +1483,57 @@ async function runCodex(prompt, workingDirectory, imageEntries) {
     });
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let settled = false;
+    let forcedFailure = "";
+    const timeout = setTimeout(() => {
+      forcedFailure =
+        "Codex took too long to respond. The request was stopped; your session is still safe to retry.";
+      child.kill();
+    }, codexTimeoutMs);
+    timeout.unref?.();
+
+    function finish(callback) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback();
+    }
+
+    function appendOutput(current, chunk, stream) {
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      const nextBytes =
+        stream === "stdout"
+          ? (stdoutBytes += chunkBytes)
+          : (stderrBytes += chunkBytes);
+      if (nextBytes > maximumCodexOutputBytes) {
+        forcedFailure =
+          "Codex returned more data than Sovereign can safely process. Try a narrower question.";
+        child.kill();
+        return current;
+      }
+      return current + chunk;
+    }
+
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
-      stdout += chunk;
+      stdout = appendOutput(stdout, chunk, "stdout");
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk;
+      stderr = appendOutput(stderr, chunk, "stderr");
     });
-    child.on("error", reject);
+    child.on("error", (error) => finish(() => reject(error)));
     child.on("close", (code) => {
+      if (forcedFailure) {
+        return finish(() => reject(new Error(forcedFailure)));
+      }
       if (code !== 0) {
         const friendly = /not logged in|authentication|401/i.test(stderr)
           ? "Codex CLI is installed but not signed in. Run `npx codex login` in a terminal, then try again."
           : stderr.trim() || `Codex exited with code ${code}.`;
-        return reject(new Error(friendly));
+        return finish(() => reject(new Error(friendly)));
       }
 
       const events = stdout
@@ -1290,9 +1558,11 @@ async function runCodex(prompt, workingDirectory, imageEntries) {
       const completion = events.find((event) => event.type === "turn.completed");
       const response = messages.at(-1);
       if (!response) {
-        return reject(new Error("Codex completed without a tutor response."));
+        return finish(() =>
+          reject(new Error("Codex completed without a tutor response.")),
+        );
       }
-      resolve({ response, usage: completion?.usage ?? null });
+      finish(() => resolve({ response, usage: completion?.usage ?? null }));
     });
     child.stdin.end(prompt);
   });

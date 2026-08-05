@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
@@ -43,12 +43,55 @@ try {
   const { token } = await pairing.json();
   const authorization = { Authorization: `Bearer ${token}` };
 
+  const companionPairing = await fetch(`${origin}/v1/companion/pairing`, {
+    headers: { "X-Sovereign-Bridge": "companion" },
+  });
+  assert.equal(companionPairing.status, 200);
+  assert.equal((await companionPairing.json()).pairingCode, pairingCode);
+
+  const browserCannotReadPairing = await fetch(
+    `${origin}/v1/companion/pairing`,
+    {
+      headers: {
+        "X-Sovereign-Bridge": "companion",
+        Origin: "http://localhost:3000",
+      },
+    },
+  );
+  assert.equal(browserCannotReadPairing.status, 401);
+
   const created = await fetch(`${origin}/v1/courses`, {
     method: "POST",
     headers: { ...authorization, "Content-Type": "application/json" },
     body: JSON.stringify({ code: "VIS101", title: "Visual Systems" }),
   });
   const { course } = await created.json();
+
+  const brokenBatch = new FormData();
+  brokenBatch.append(
+    "files",
+    new File(["This file should be rolled back."], "rollback.txt", {
+      type: "text/plain",
+    }),
+  );
+  brokenBatch.append(
+    "files",
+    new File(["unsupported"], "unsupported.exe", {
+      type: "application/octet-stream",
+    }),
+  );
+  const rejectedBatch = await fetch(
+    `${origin}/v1/courses/${course.id}/materials`,
+    { method: "POST", headers: authorization, body: brokenBatch },
+  );
+  assert.equal(rejectedBatch.status, 500);
+  const courseFilesAfterRollback = await readdir(
+    path.join(dataDirectory, "courses", course.id),
+  );
+  assert.deepEqual(
+    courseFilesAfterRollback.filter((name) => name !== "index"),
+    [],
+  );
 
   const deck = new JSZip();
   deck.file(
@@ -131,6 +174,26 @@ try {
   assert.equal(progress.courses[0].confidence, 58);
   assert.equal(progress.courses[0].misconceptions[0].count, 1);
   assert.equal(progress.courses[0].reviewDue, true);
+
+  const profilePath = path.join(
+    dataDirectory,
+    "courses",
+    course.id,
+    "learning-profile.json",
+  );
+  await writeFile(profilePath, "{not valid json");
+  const corruptProgress = await fetch(`${origin}/v1/progress`, {
+    headers: authorization,
+  });
+  assert.equal(corruptProgress.status, 500);
+  const courseFilesAfterBackup = await readdir(
+    path.join(dataDirectory, "courses", course.id),
+  );
+  assert.ok(
+    courseFilesAfterBackup.some((name) =>
+      name.startsWith("learning-profile.json.corrupt-"),
+    ),
+  );
 
   console.log(
     "Sovereign retained a slide visual and summarized local learning progress.",
